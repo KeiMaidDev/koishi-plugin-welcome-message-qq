@@ -337,24 +337,25 @@ git diff --check -- external/welcome-messge-qq
 - [ ] 至少完成一次真实 QQ 入群、一次真实 QQ 退群和一次按钮点击命令执行的端到端验证，并记录实际结果。
 ---
 
-## 当前执行记录（2026-07-21）
+## 当前执行记录（2026-07-21 至 2026-07-22）
 
 ### 已完成的本地验证
 
 - [x] `yarn tsx --test external/welcome-messge-qq/tests/index.spec.ts`：26 项测试通过。
 - [x] 测试覆盖全部固定占位符、固定事件时间、跨时区日期、OpenID 回退、群级继承、显式空键盘、事件开关、机器人过滤、发送失败、畸形按钮配置，以及开启/关闭指令的即时切换、递归配置写回、`scope` 边界和重复执行。
 - [x] 使用 `adapter-qq-crack` 的真实 `parseQQMarkdownElement()` 解析生成元素，确认正文位于 `markdown.content`，按钮位于同一请求的 `keyboard.content.rows`。
-- [x] 针对真实入群不发送问题对照 `adapter-qq-crack` 的 `adaptSession()` 与 `QQMessageEncoder`：确认 `GROUP_MEMBER_ADD` 会映射为 `guild-member-added`，`session.qq.id` 会作为 `event_id` 发送；修复了无按钮 Markdown 误把正文放在 `attrs.content` 导致适配器从空 `children` 读取到空消息的问题。
-- [x] 成员通知现直接调用 `session.bot.sendMessage(session.channelId, message, session.event.referrer, { session })`，保留适配器事件上下文并让发送异常进入本插件日志。
+- [x] 针对真实入群不发送问题对照 `adapter-qq-crack` 的 `adaptSession()` 与 `QQMessageEncoder`：确认 `GROUP_MEMBER_ADD` 会映射为 `guild-member-added`；修复了无按钮 Markdown 误把正文放在 `attrs.content` 导致适配器从空 `children` 读取到空消息的问题。
+- [x] 根据真实 QQ 响应 `40034027` 确认成员加入/离开事件不能用其 `event_id` 被动回复；成员通知现调用 `session.bot.sendMessage(session.channelId, message, session.event.referrer)` 作为主动群消息发送，不再传 `{ session }`，并让发送异常进入本插件日志。
+- [x] 使用 `QQMessageEncoder` 验证最终成员通知请求包含非空 Markdown 正文，且 `event_id === undefined`。
 - [x] 已执行 `yarn yakumo esbuild welcome-messge-qq` 生成运行时必需的 `lib/index.js`，并用 `require.resolve('koishi-plugin-welcome-messge-qq')` 确认 Koishi 可解析插件入口。
 - [x] 使用真实 Koishi `Context` 完成插件加载、监听器与开关指令销毁、重新加载测试，确认重启路径不会残留旧监听器、重复发送或残留指令别名。
 - [x] 使用真实 Koishi `NodeLoader` 启动临时配置，依次调用已注册的关闭与开启指令处理函数，确认回复“已关闭本群的入群与退群消息”和“已开启本群的入群与退群消息”，且临时 YAML 最终实际写回 `guildId: TEST_ENABLE_GUILD` 与 `enabled: true`；临时探针、配置与构建产物均已清理。
 - [x] 使用仅包含 `server`、`console`、`config` 与本插件的临时 Koishi 配置启动本地控制台：全局欢迎/离群按钮及群级覆盖均显示为参考 `jrys-prpr` 的可折叠 JSON 多行文本框，不再显示 `rows -> buttons -> render_data/action` 多层表单；通过控制台修改按钮 JSON 并点击应用，临时 YAML 成功写回“控制台 JSON 保存验证”且插件完成重载。此前发现并修复的 `Schema.transform` 时区控件问题仍由带 IANA 时区白名单正则的字符串 Schema 处理。
 - [x] `yarn tsc -p external/welcome-messge-qq/tsconfig.json --pretty false` 通过。
 - [x] `yarn esbuild external/welcome-messge-qq/src/index.ts --bundle --platform=node --format=esm --external:koishi` 通过。
-- [x] 已按补充要求在 `C:\koishi-app` 执行 `yarn build`；工作区构建在 `external/adapter-onebot` 的 4 个既有 TypeScript 类型错误处中断（`utils.ts` 的 `subsubtype` 两处、`ws.ts` 的 WebSocket 类型与协议泛型两处），输出中没有本插件错误。本插件随后独立执行测试、TypeScript 与 esbuild 均通过。
+- [x] 2026-07-22 在 `C:\koishi-app` 重新执行 `yarn build` 已完整通过；`adapter-qq-crack`、`driftbottle-qq`、`mai-plugin` 与 `welcome-messge-qq` 的 TypeScript/ esbuild 产物均成功生成，之前 `adapter-onebot` 的 4 个类型错误本次未再出现。
 - [x] 插件仓库内 `git diff --check` 通过；工作区根目录不是 Git 仓库，因此不能从 `C:\koishi-app` 执行原文中的根级 Git 路径检查。
-- [x] 声明构建与打包产生的临时文件已清理。
+- [x] 临时探针与临时配置已清理；运行时必需的 `lib/index.js` 作为有效构建产物保留。
 
 ### 仍需真实 QQ 环境完成
 

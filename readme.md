@@ -256,11 +256,12 @@ await session.bot.sendMessage(
   session.channelId,
   message,
   session.event.referrer,
-  { session },
 )
 ```
 
-必须传入 `{ session }`，因为适配器的 `QQMessageEncoder` 会从 `session.qq.id` 取出网关事件 ID，并将它作为 `event_id` 传给 QQ 群消息 API。无按钮 Markdown 必须把正文放在 `h('markdown', ...)` 的子节点中；该适配器从 `children` 读取 Markdown 正文，不读取 `attrs.content`。
+成员加入/离开是通知事件，其网关事件 ID 不能用于被动回复。因此这里故意不传 `{ session }`；否则 `adapter-qq-crack` 会把 `session.qq.id` 写入 `event_id`，QQ 将返回 `40034027`（“请求参数 event_id 对应事件不能回复消息”）。本插件会将成员通知作为主动群消息发送。
+
+无按钮 Markdown 必须把正文放在 `h('markdown', ...)` 的子节点中；该适配器从 `children` 读取 Markdown 正文，不读取 `attrs.content`。
 
 ## 日志与容错
 

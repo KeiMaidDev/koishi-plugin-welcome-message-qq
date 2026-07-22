@@ -355,7 +355,9 @@ export async function persistDisabledGuildConfig(
 
 export async function sendMemberNotification(session: Session, message: string | h) {
   if (session.bot && typeof session.bot.sendMessage === 'function' && session.channelId) {
-    return session.bot.sendMessage(session.channelId, message, session.event.referrer, { session })
+    // QQ group member events are notifications, not replyable message events. Passing the
+    // event session makes adapter-qq-crack attach session.qq.id as event_id, which QQ rejects.
+    return session.bot.sendMessage(session.channelId, message, session.event.referrer)
   }
   return session.send(message)
 }
