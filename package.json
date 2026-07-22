@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-welcome-messge-qq",
-  "description": "",
+  "description": "QQ 群成员入群欢迎、离群通知与原生 Markdown 命令按钮插件",
   "version": "0.0.1",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
@@ -9,13 +9,16 @@
     "dist"
   ],
   "license": "MIT",
-  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "qq",
+    "qq-group",
+    "welcome-message",
+    "guild-member",
+    "markdown"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
   }
