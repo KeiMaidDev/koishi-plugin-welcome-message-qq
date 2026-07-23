@@ -1,5 +1,5 @@
 import type { Session } from 'koishi'
-import type { NotificationEventType, TemplateVariables } from './types'
+import type { TemplateEventType, TemplateVariables } from './types'
 
 export type TemplateRenderMode = 'text' | 'markdown' | 'markdown-text'
 
@@ -56,7 +56,7 @@ function dateTimeParts(timestamp: number, timeZone: string) {
 }
 
 export interface ExtractTemplateVariablesOptions {
-  eventType: NotificationEventType
+  eventType: TemplateEventType
   timeZone: string
   now?: () => number
   debug?: (message: string) => void
@@ -95,7 +95,12 @@ export function extractTemplateVariables(
     date,
     clock,
     timestamp: String(Math.floor(timestamp / 1000)),
-    event: options.eventType === 'join' ? '加入群聊' : '离开群聊',
+    event: {
+      join: '加入群聊',
+      leave: '离开群聊',
+      close: '关闭通知',
+      enable: '开启通知',
+    }[options.eventType],
     eventType: options.eventType,
     botId,
   }

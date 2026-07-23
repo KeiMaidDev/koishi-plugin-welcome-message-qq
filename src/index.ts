@@ -1,5 +1,5 @@
 import { Context, h, Schema, Session } from 'koishi'
-import { createKeyboardTextSchema, EMPTY_KEYBOARD_JSON, normalizeKeyboard } from './button'
+import { normalizeKeyboard } from './button'
 import {
   containsAtPlaceholder,
   extractTemplateVariables,
@@ -30,9 +30,153 @@ export { normalizeKeyboard } from './button'
 
 export const name = 'welcome-messge-qq'
 
+export const usage = `
+
+本插件配合 <code>adapter-qq-crack</code> 使用。
+
+## 默认配置
+
+插件首次启用时会直接使用当前验证过的配置：
+
+- 入群正文：<code>欢迎 {at} 加入群聊！</code>，并显示“关闭欢迎”按钮。
+- 离群正文：<code>{at} 已离开群聊。</code>，并显示“关闭欢迎”和“帮助菜单”按钮。
+- 关闭成功后显示“重新开启”按钮；开启成功后显示“再次关闭”按钮。
+- 开启/关闭指令默认权限等级为 <code>1</code>。
+
+## 模板变量
+
+- {at}：@用户
+- {username}：用户名
+- {guildName}：群组名称
+- {date}：事件日期
+- {clock}：事件时间
+- {event}：事件名称，固定为“加入群聊”或“离开群聊”
+- {botId}：机器人id
+
+## 按钮
+
+- <code>action.type = 1</code> 是回调按钮。本插件只响应以下命名空间：
+  - <code>welcome-messge-qq:reply:要回复的文本</code>：点击后发送指定文本。
+  - <code>welcome-messge-qq:command:/要执行的指令</code>：点击后执行 Koishi 指令，例如 <code>welcome-messge-qq:command:/开启欢迎</code>。
+- <code>action.type = 2</code> 是普通 QQ 指令按钮，<code>action.data</code> 直接填写指令内容，不经过本插件的回调处理。
+- 按钮 <code>id</code> 可以省略，插件会按照行列自动生成稳定 ID，例如 <code>0-0</code>。
+- 键盘配置填写 <code>keyboard.content</code> 内部的对象，即以 <code>{ &quot;rows&quot;: [...] }</code> 开始的 JSON。
+
+`
+export const CALLBACK_REPLY_PREFIX = 'welcome-messge-qq:reply:'
+export const CALLBACK_COMMAND_PREFIX = 'welcome-messge-qq:command:'
+
+export type ButtonCallbackAction =
+  | { type: 'reply'; content: string }
+  | { type: 'command'; command: string }
+
+export function resolveButtonCallbackAction(data: unknown): ButtonCallbackAction | undefined {
+  if (typeof data !== 'string') return
+  if (data.startsWith(CALLBACK_REPLY_PREFIX)) {
+    const content = data.slice(CALLBACK_REPLY_PREFIX.length)
+    if (!content.trim()) return
+    return { type: 'reply', content }
+  }
+  if (data.startsWith(CALLBACK_COMMAND_PREFIX)) {
+    let command = data.slice(CALLBACK_COMMAND_PREFIX.length).trim()
+    if (command.startsWith('/')) command = command.slice(1).trimStart()
+    if (!command || /[\r\n]/u.test(command)) return
+    return { type: 'command', command }
+  }
+}
+
+export interface HandleButtonCallbackOptions {
+  debug?: (message: string) => void
+}
+
+export async function handleButtonCallback(
+  session: Session,
+  options: HandleButtonCallbackOptions = {},
+): Promise<boolean> {
+  if (session.platform !== 'qq') return false
+  const button = session.event.button as { data?: unknown } | undefined
+  const action = resolveButtonCallbackAction(button?.data)
+  if (!action) return false
+
+  if (action.type === 'reply') {
+    if (typeof session.send !== 'function') throw new Error('Current QQ interaction cannot send a callback reply.')
+    await session.send(action.content)
+    options.debug?.('Replied to a welcome-messge-qq callback button.')
+    return true
+  }
+
+  if (typeof session.execute !== 'function') throw new Error('Current QQ interaction cannot execute a callback command.')
+  session.content = action.command
+  await session.execute(action.command)
+  options.debug?.('Executed a welcome-messge-qq callback command.')
+  return true
+}
+
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai'
-const DEFAULT_WELCOME_MESSAGE = '欢迎 {at} 加入群聊！\n入群时间：{time}'
-const DEFAULT_LEAVE_MESSAGE = '{username} 已离开群聊。\n离群时间：{time}'
+const DEFAULT_WELCOME_MESSAGE = '欢迎 {at} 加入群聊！'
+const DEFAULT_LEAVE_MESSAGE = '{at} 已离开群聊。'
+const DEFAULT_CLOSE_RESPONSE_MESSAGE = '# 已关闭本群入退群通知\n> 点击下方按钮可以重新开启。'
+const DEFAULT_ENABLE_RESPONSE_MESSAGE = '# 已开启本群入退群通知\n> 点击下方按钮可以再次关闭。'
+const DEFAULT_WELCOME_KEYBOARD = JSON.stringify({
+  rows: [{
+    buttons: [{
+      render_data: { label: '关闭欢迎', style: 1 },
+      action: {
+        type: 1,
+        permission: { type: 1 },
+        data: `${CALLBACK_COMMAND_PREFIX}/关闭欢迎`,
+        enter: true,
+      },
+    }],
+  }],
+}, null, 2)
+const DEFAULT_LEAVE_KEYBOARD = JSON.stringify({
+  rows: [{
+    buttons: [
+      {
+        render_data: { label: '关闭欢迎', style: 1 },
+        action: {
+          type: 1,
+          permission: { type: 1 },
+          data: `${CALLBACK_COMMAND_PREFIX}/关闭欢迎`,
+          enter: true,
+        },
+      },
+      {
+        render_data: { label: '帮助菜单', style: 1 },
+        action: {
+          type: 2,
+          permission: { type: 2 },
+          data: '/帮助菜单',
+        },
+      },
+    ],
+  }],
+}, null, 2)
+const DEFAULT_CLOSE_RESPONSE_KEYBOARD = JSON.stringify({
+  rows: [{
+    buttons: [{
+      render_data: { label: '重新开启', style: 1 },
+      action: {
+        type: 1,
+        permission: { type: 1 },
+        data: `${CALLBACK_COMMAND_PREFIX}/开启欢迎`,
+      },
+    }],
+  }],
+}, null, 2)
+const DEFAULT_ENABLE_RESPONSE_KEYBOARD = JSON.stringify({
+  rows: [{
+    buttons: [{
+      render_data: { label: '再次关闭', style: 1 },
+      action: {
+        type: 1,
+        permission: { type: 1 },
+        data: `${CALLBACK_COMMAND_PREFIX}/关闭欢迎`,
+      },
+    }],
+  }],
+}, null, 2)
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -53,23 +197,23 @@ const timeZoneSchema = Schema.string()
   .description('IANA 时区名称，例如 Asia/Shanghai。非法或当前运行时不支持的时区无法保存。')
 
 const messageFormatSchema = Schema.union([
-  Schema.const('text').description('普通文本；遇到 {at} 或有效按钮时会安全转换为 QQ Markdown。'),
-  Schema.const('markdown').description('QQ 原生 Markdown。'),
-]).default('text')
+  Schema.const('text').description('普通消息（推荐）：直接按普通文字发送；需要 @ 成员或显示按钮时，插件会自动切换为 QQ Markdown。'),
+  Schema.const('markdown').description('Markdown 消息：把模板按 QQ Markdown 排版发送，适合标题、引用、加粗等样式。'),
+]).role('radio').default('text')
 
 const groupSchema: Schema<GroupConfig> = Schema.object({
   guildId: Schema.string().required().description('QQ 群 OpenID（不是普通 QQ 群号），作为唯一匹配键。'),
   enabled: Schema.boolean().default(true).description('是否在此群启用成员变动通知。'),
   welcomeEnabled: Schema.boolean().description('可选。是否发送入群欢迎消息；未填写时继承全局配置。'),
   welcomeMessage: Schema.string().role('textarea').description('可选。入群欢迎模板；未填写时继承全局配置，显式空白表示不发送。'),
-  welcomeKeyboard: createKeyboardTextSchema('可选。欢迎按钮 JSON；留空时继承全局键盘，显式填写空 rows 表示不显示按钮。'),
+  welcomeKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().description('可选。欢迎按钮 JSON；留空时继承全局键盘，显式填写空 rows 表示不显示按钮。'),
   leaveEnabled: Schema.boolean().description('可选。是否发送离群消息；未填写时继承全局配置。'),
   leaveMessage: Schema.string().role('textarea').description('可选。离群消息模板；未填写时继承全局配置，显式空白表示不发送。'),
-  leaveKeyboard: createKeyboardTextSchema('可选。离群按钮 JSON；留空时继承全局键盘，显式填写空 rows 表示不显示按钮。'),
+  leaveKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().description('可选。离群按钮 JSON；留空时继承全局键盘，显式填写空 rows 表示不显示按钮。'),
   messageFormat: Schema.union([
-    Schema.const('text').description('普通文本。'),
-    Schema.const('markdown').description('QQ 原生 Markdown。'),
-  ]).description('可选。消息格式；未填写时继承全局配置。'),
+    Schema.const('text').description('普通消息：直接按普通文字发送；需要 @ 成员或显示按钮时自动转换。'),
+    Schema.const('markdown').description('Markdown 消息：使用 QQ Markdown 的标题、引用、加粗等排版。'),
+  ]).role('radio').description('可选。选择这个群的消息显示方式；未选择时使用上方的全局设置。'),
 }).description('指定 QQ 群的覆盖规则')
 
 export const Config: Schema<PluginConfig> = Schema.object({
@@ -77,16 +221,24 @@ export const Config: Schema<PluginConfig> = Schema.object({
   welcomeMessage: Schema.string().role('textarea').default(DEFAULT_WELCOME_MESSAGE).description('入群欢迎模板，支持多行和固定占位符。'),
   leaveEnabled: Schema.boolean().default(true).description('是否发送离群消息。'),
   leaveMessage: Schema.string().role('textarea').default(DEFAULT_LEAVE_MESSAGE).description('中性的离群消息模板，支持多行和固定占位符。'),
-  messageFormat: messageFormatSchema.description('全局消息格式。'),
+  messageFormat: messageFormatSchema.description('选择欢迎消息和离群消息的显示方式。不确定时保持“普通消息（推荐）”即可。'),
   scope: Schema.union([
-    Schema.const('all').description('所有 QQ 群生效；未配置群使用全局设置。'),
-    Schema.const('configured').description('仅 groups 中 enabled !== false 的 QQ 群生效。'),
-  ]).default('all').description('插件生效范围。'),
+    Schema.const('all').description('全部 QQ 群（推荐）：机器人加入的所有群都启用；下方群配置只用于单独关闭或修改某个群。'),
+    Schema.const('configured').description('仅指定的 QQ 群：只在下方群配置中已经添加且没有关闭的群发送消息。'),
+  ]).role('radio').default('all').description('选择入群欢迎和离群通知要在哪些 QQ 群生效。'),
   ignoreBots: Schema.boolean().default(true).description('忽略机器人自身以及标记为机器人的成员事件。'),
   timeZone: timeZoneSchema,
-  closeCommandAuthority: Schema.number().step(1).min(0).max(5).default(3).description('开启/关闭当前群通知指令所需的 Koishi 权限等级。'),
-  welcomeKeyboard: createKeyboardTextSchema('全局欢迎消息按钮 JSON。', { defaultValue: EMPTY_KEYBOARD_JSON }),
-  leaveKeyboard: createKeyboardTextSchema('全局离群消息按钮 JSON。', { defaultValue: EMPTY_KEYBOARD_JSON }),
+  closeCommandAuthority: Schema.number().step(1).min(0).max(5).default(1).description('开启/关闭当前群通知指令所需的 Koishi 权限等级。'),
+  commandResponseFormat: Schema.union([
+    Schema.const('text').description('普通文本；有按钮时自动转为 QQ Markdown。'),
+    Schema.const('markdown').description('QQ 原生 Markdown。'),
+  ]).default('text').description('开启/关闭指令成功响应的消息格式。'),
+  closeResponseMessage: Schema.string().role('textarea').default(DEFAULT_CLOSE_RESPONSE_MESSAGE).description('关闭成功后的自定义响应正文。'),
+  closeResponseKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().default(DEFAULT_CLOSE_RESPONSE_KEYBOARD).description('关闭成功后的自定义按钮 JSON。'),
+  enableResponseMessage: Schema.string().role('textarea').default(DEFAULT_ENABLE_RESPONSE_MESSAGE).description('开启成功后的自定义响应正文。'),
+  enableResponseKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().default(DEFAULT_ENABLE_RESPONSE_KEYBOARD).description('开启成功后的自定义按钮 JSON。'),
+  welcomeKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().default(DEFAULT_WELCOME_KEYBOARD).description('全局欢迎消息按钮 JSON。'),
+  leaveKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().default(DEFAULT_LEAVE_KEYBOARD).description('全局离群消息按钮 JSON。'),
   groups: Schema.array(groupSchema).default([]).description('按 QQ 群 OpenID 设置覆盖规则；重复 OpenID 使用最后一项。'),
 })
 
@@ -185,7 +337,10 @@ export function buildNotification(
     debug: options.debug,
     warn: options.warn,
   })
-  const rows = normalizeKeyboard(resolved.keyboard, variables, { debug: options.debug })
+  const rows = normalizeKeyboard(resolved.keyboard, variables, {
+    debug: options.debug,
+    warn: options.warn,
+  })
   const hasButtons = rows.length > 0
   const needsMarkdown = resolved.messageFormat === 'markdown'
     || hasButtons
@@ -262,6 +417,54 @@ export function setGuildNotificationsEnabled(
     groups.push({ guildId: normalizedGuildId, enabled })
   }
   return { ...config, groups }
+}
+
+export function buildCommandResponse(
+  session: Session,
+  enabled: boolean,
+  config: PluginConfig,
+  timeZone: string,
+  options: BuildNotificationOptions = {},
+): string | h | undefined {
+  const responseType = enabled ? 'enable' : 'close'
+  const template = enabled
+    ? (config.enableResponseMessage ?? DEFAULT_ENABLE_RESPONSE_MESSAGE)
+    : (config.closeResponseMessage ?? DEFAULT_CLOSE_RESPONSE_MESSAGE)
+  const keyboard = enabled ? config.enableResponseKeyboard : config.closeResponseKeyboard
+  if (!template.trim()) {
+    options.debug?.(`${responseType} response template is blank; skipped.`)
+    return
+  }
+
+  const variables = extractTemplateVariables(session, {
+    eventType: responseType,
+    timeZone,
+    debug: options.debug,
+    warn: options.warn,
+  })
+  const rows = normalizeKeyboard(keyboard, variables, {
+    debug: options.debug,
+    warn: options.warn,
+  })
+  const hasButtons = rows.length > 0
+  const format = config.commandResponseFormat ?? 'text'
+  const needsMarkdown = format === 'markdown' || hasButtons || containsAtPlaceholder(template)
+  const renderMode: TemplateRenderMode = format === 'markdown'
+    ? 'markdown'
+    : needsMarkdown
+      ? 'markdown-text'
+      : 'text'
+  const rendered = renderMessageTemplate(template, variables, renderMode)
+  if (!rendered.trim()) return
+
+  if (hasButtons) {
+    return h('qq:rawmarkdown', {
+      markdown: { content: rendered },
+      keyboard: { content: { rows } },
+    })
+  }
+  if (needsMarkdown) return h('markdown', rendered)
+  return rendered
 }
 
 export function disableGuildNotifications(config: PluginConfig, guildId: string): PluginConfig {
@@ -353,13 +556,44 @@ export async function persistDisabledGuildConfig(
   return persistGuildConfig(ctx, groups, previousConfig)
 }
 
-export async function sendMemberNotification(session: Session, message: string | h) {
+function isPassiveReplyRejected(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    const response = (error as { response?: { data?: { code?: unknown; err_code?: unknown } } }).response
+    const code = response?.data?.err_code ?? response?.data?.code
+    if (code === 40034027) return true
+
+    const errors = (error as { errors?: unknown }).errors
+    if (Array.isArray(errors) && errors.some(isPassiveReplyRejected)) return true
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return /(?:^|\D)40034027(?:\D|$)/.test(message)
+}
+
+export interface SendMemberNotificationOptions {
+  debug?: (message: string) => void
+}
+
+export async function sendMemberNotification(
+  session: Session,
+  message: string | h,
+  eventType: NotificationEventType,
+  options: SendMemberNotificationOptions = {},
+) {
+  if (typeof session.send === 'function') {
+    try {
+      // The latest adapter-qq-crack maps both GROUP_MEMBER_ADD and GROUP_MEMBER_REMOVE
+      // gateway ids to session.messageId, so the encoder replies with msg_id + msg_seq.
+      return await session.send(message)
+    } catch (error) {
+      if (!isPassiveReplyRejected(error)) throw error
+      options.debug?.(`${eventType === 'join' ? '入群' : '离群'}事件的被动回复被 QQ 拒绝，回退为主动群消息。`)
+    }
+  }
+
   if (session.bot && typeof session.bot.sendMessage === 'function' && session.channelId) {
-    // QQ group member events are notifications, not replyable message events. Passing the
-    // event session makes adapter-qq-crack attach session.qq.id as event_id, which QQ rejects.
     return session.bot.sendMessage(session.channelId, message, session.event.referrer)
   }
-  return session.send(message)
+  throw new Error('当前 QQ 会话不支持发送群成员通知。')
 }
 
 export function apply(ctx: Context, config: PluginConfig) {
@@ -398,7 +632,9 @@ export function apply(ctx: Context, config: PluginConfig) {
       })
       if (!message) return
 
-      await sendMemberNotification(session, message)
+      await sendMemberNotification(session, message, eventType, {
+        debug: value => logger.debug('%s guildId=%s userId=%s', value, session.guildId, session.userId),
+      })
       logger.debug('已发送 QQ 成员通知：guildId=%s userId=%s event=%s', session.guildId, session.userId, eventType)
     } catch (error) {
       logger.warn(
@@ -436,7 +672,10 @@ export function apply(ctx: Context, config: PluginConfig) {
         const persisted = await persistGuildConfig(ctx, activeConfig.groups, previousConfig)
         if (persisted) {
           logger.info('已通过%s指令更新 QQ 群成员通知：guildId=%s userId=%s', action, session.guildId, session.userId)
-          return `已${action}本群的入群与退群消息。`
+          return buildCommandResponse(session, enabled, activeConfig, timeZone, {
+            debug: value => logger.debug('%s guildId=%s userId=%s', value, session.guildId, session.userId),
+            warn: value => logger.warn('%s guildId=%s userId=%s', value, session.guildId, session.userId),
+          })
         }
         logger.warn(
           '已在当前运行期间%s QQ 群成员通知，但未找到可写入的 Koishi 配置加载器：guildId=%s',
@@ -456,18 +695,32 @@ export function apply(ctx: Context, config: PluginConfig) {
     }
 
     ctx.command(CLOSE_COMMAND_NAME, '关闭当前 QQ 群的入群与退群消息', {
-      authority: activeConfig.closeCommandAuthority ?? 3,
+      authority: activeConfig.closeCommandAuthority ?? 1,
     })
       .alias(...CLOSE_COMMAND_ALIASES)
       .action(({ session }) => setNotificationsEnabled(session, false))
 
     ctx.command(ENABLE_COMMAND_NAME, '开启当前 QQ 群的入群与退群消息', {
-      authority: activeConfig.closeCommandAuthority ?? 3,
+      authority: activeConfig.closeCommandAuthority ?? 1,
     })
       .alias(...ENABLE_COMMAND_ALIASES)
       .action(({ session }) => setNotificationsEnabled(session, true))
   }
 
+  ctx.on('interaction/button', async session => {
+    try {
+      await handleButtonCallback(session, {
+        debug: value => logger.debug('%s guildId=%s userId=%s', value, session.guildId, session.userId),
+      })
+    } catch (error) {
+      logger.warn(
+        'Failed to handle QQ callback button: guildId=%s userId=%s error=%s',
+        session.guildId || '(missing)',
+        session.userId || '(missing)',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  })
   ctx.on('guild-member-added', session => handleMemberEvent(session, 'join'))
   ctx.on('guild-member-removed', session => handleMemberEvent(session, 'leave'))
 }

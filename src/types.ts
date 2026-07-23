@@ -1,25 +1,35 @@
 export type MessageFormat = 'text' | 'markdown'
 export type NotificationScope = 'all' | 'configured'
 export type NotificationEventType = 'join' | 'leave'
+export type ControlResponseType = 'close' | 'enable'
+export type TemplateEventType = NotificationEventType | ControlResponseType
 
 export interface KeyboardPermissionConfig {
-  type?: 2
+  type?: number
+  specify_user_ids?: string[]
+  specify_role_ids?: string[]
 }
 
 export interface KeyboardActionConfig {
-  type?: 2
+  type?: number
   permission?: KeyboardPermissionConfig
   data: string
   enter?: boolean
   reply?: boolean
+  anchor?: number
+  click_limit?: number
+  at_bot_show_channel_list?: boolean
+  unsupport_tips?: string
 }
 
 export interface KeyboardRenderDataConfig {
   label: string
+  visited_label?: string
   style?: number
 }
 
 export interface KeyboardButtonConfig {
+  id?: string
   render_data: KeyboardRenderDataConfig
   action: KeyboardActionConfig
 }
@@ -56,6 +66,11 @@ export interface Config {
   ignoreBots: boolean
   timeZone: string
   closeCommandAuthority: number
+  commandResponseFormat: MessageFormat
+  closeResponseMessage: string
+  closeResponseKeyboard?: string
+  enableResponseMessage: string
+  enableResponseKeyboard?: string
   welcomeKeyboard?: string
   leaveKeyboard?: string
   groups: GroupConfig[]
@@ -72,7 +87,7 @@ export interface TemplateVariables {
   clock: string
   timestamp: string
   event: string
-  eventType: NotificationEventType
+  eventType: TemplateEventType
   botId: string
 }
 
@@ -84,18 +99,26 @@ export interface ResolvedNotificationConfig {
 }
 
 export interface RenderedKeyboardButton {
+  id?: string
   render_data: {
     label: string
+    visited_label?: string
     style: number
   }
   action: {
-    type: 2
+    type: number
     permission: {
-      type: 2
+      type: number
+      specify_user_ids?: string[]
+      specify_role_ids?: string[]
     }
     data: string
     enter: boolean
     reply: boolean
+    anchor?: number
+    click_limit?: number
+    at_bot_show_channel_list?: boolean
+    unsupport_tips?: string
   }
 }
 

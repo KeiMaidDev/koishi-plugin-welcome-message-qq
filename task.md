@@ -15,19 +15,19 @@
   - `session.userId` 为发生变动的成员 OpenID。
   - 用户显示名优先读取 `session.event.user?.name`，缺失时必须回退到成员昵称或 `session.userId`。
   - `session.operatorId` 可能为 `undefined`，因此退群消息不得擅自区分“主动退出”与“被管理员移出”。
-- `h('markdown', { content })` 在该适配器中等价于不带键盘的 QQ 原生 Markdown。
+- `h('markdown', rendered)` 在该适配器中等价于不带键盘的 QQ 原生 Markdown；正文必须放在元素子节点中，不能写入 `attrs.content`。
 - 只要存在有效自定义按钮，就必须使用单个 `h('qq:rawmarkdown', { markdown, keyboard })` 元素发送，并把按钮下挂到同一消息的 `keyboard.content.rows`；不得把按钮拆成独立消息，通知也不启用 `stream`。
 
 ## 不在本次范围
 
 - 不处理 `guild-member-updated`。
-- 不监听普通消息，不增加中间件；仅注册用于开启/关闭当前群入退群通知的显式 Koishi 管理指令。
+- 不监听普通消息，不增加中间件；除显式 Koishi 管理指令外，仅监听带本插件命名空间的 `interaction/button` 回调。
 - 不根据 `operatorId` 推断退群原因。
 - 不加入数据库、历史记录、统计面板或 Web 管理页面。
 - 不实现 Markdown 模板 ID、Ark 消息或流式消息。
-- 自定义按钮只使用 `action.type = 2` 的普通命令按钮，不实现 `interaction/button` 回调处理。
+- 不接管其他插件或不带 `welcome-messge-qq:` 命名空间的 `interaction/button` 回调。
 - 不使用独立 `qq:button`、`h('button')` 或“正文一条、按钮一条”的分开发送方式。
-- 不改动 `adapter-qq-crack` 的事件映射与发送逻辑。
+- 不再修改 `adapter-qq-crack` 的事件回复判定；直接兼容原作者最新版中为 `GROUP_MEMBER_ADD` 与 `GROUP_MEMBER_REMOVE` 写入 `session.messageId` 的实现。
 
 ---
 
@@ -46,6 +46,9 @@
   - [x] `timeZone: string`：`{time}`、`{date}`、`{clock}` 的时区，默认 `Asia/Shanghai`，使用 IANA 时区名称并校验非法值。
   - [x] `welcomeKeyboard`：欢迎消息的自定义按钮 JSON，多行文本框默认填写 `{ "rows": [] }`。
   - [x] `leaveKeyboard`：离群消息的自定义按钮 JSON，多行文本框默认填写 `{ "rows": [] }`。
+  - [x] `commandResponseFormat`：开启/关闭成功回复使用普通文本或 QQ Markdown。
+  - [x] `closeResponseMessage`、`closeResponseKeyboard`：关闭成功后的自定义正文与 QQ 原生键盘。
+  - [x] `enableResponseMessage`、`enableResponseKeyboard`：开启成功后的对称自定义正文与 QQ 原生键盘。
 - [x] 增加 `groups` 数组配置，每项至少包含：
   - [x] `guildId: string`：QQ 群 OpenID，作为唯一匹配键。
   - [x] `enabled: boolean`：该群是否启用通知。
@@ -58,8 +61,8 @@
   - [x] 群级 `enabled = false` 时，无论全局配置如何都跳过该群。
 - [x] 对重复 `guildId` 给出可预测行为，建议使用最后一项覆盖，并记录一次警告，避免同一事件重复发送。
 - [x] 默认文案使用中性表述，例如：
-  - [x] 欢迎：`欢迎 {at} 加入群聊！\n入群时间：{time}`
-  - [x] 离群：`{username} 已离开群聊。\n离群时间：{time}`
+  - [x] 欢迎：`欢迎 {at} 加入群聊！`
+  - [x] 离群：`{at} 已离开群聊。`
 
 ### 验收标准
 
@@ -115,19 +118,23 @@
 
 - [x] 欢迎消息与离群消息分别维护独立按钮配置，禁止两类事件意外复用或串改同一个数组对象。
 - [x] 全局 `welcomeKeyboard`、`leaveKeyboard` 以及群级覆盖均使用参考 `jrys-prpr` 的可折叠 JSON 多行文本框；文本内容采用与适配器一致的 `rows -> buttons` 结构。
-- [x] 至少支持以下按钮字段：
+- [x] 支持并透传 `adapter-qq-crack` 已实现的完整 QQ 原生按钮字段：
+  - [x] `id?: string`：可选按钮标识。
   - [x] `render_data.label: string`：按钮显示文字，不能为空。
-  - [x] `render_data.style: number`：按钮样式，示例值支持 `2`。
-  - [x] `action.type: 2`：固定使用普通命令按钮，不走回调按钮。
-  - [x] `action.permission.type: 2`：默认允许当前会话用户点击执行。
-  - [x] `action.data: string`：点击后发送的完整命令文本，例如 `/关闭欢迎`。
-  - [x] `action.enter: boolean`：是否自动发送，默认 `true`。
-  - [x] `action.reply?: boolean`：是否以回复形式发送，默认 `false`。
+  - [x] `render_data.visited_label?: string`：点击后的显示文字。
+  - [x] `render_data.style?: number`：按钮样式，未填写时默认 `2`。
+  - [x] `action.type?: number`：不再固定为 `2`；支持 QQ 原生 `0` 跳转、`1` 回调、`2` 指令，并对显式有限数字原样透传；未填写时默认 `2`。
+  - [x] `action.permission.type?: number`：支持 `0` 指定用户、`1` 管理员、`2` 所有人、`3` 指定身份组；未填写时默认 `2`。
+  - [x] `action.permission.specify_user_ids?: string[]`、`specify_role_ids?: string[]`：指定用户或身份组 OpenID。
+  - [x] `action.data: string`：动作数据，不能为空；只在此字段替换固定模板占位符。
+  - [x] `action.enter?: boolean`：未填写时默认 `true`。
+  - [x] `action.reply?: boolean`：未填写时默认 `false`。
+  - [x] `action.anchor?: number`、`click_limit?: number`、`at_bot_show_channel_list?: boolean`、`unsupport_tips?: string`：类型合法时原样透传。
 - [x] 在 Schema 中以可折叠的 JSON 多行文本框配置完整键盘，避免把 `rows -> buttons -> render_data/action` 展开成多层表单；提供中文格式说明与空键盘默认值。
 - [x] 对配置执行防御性规范化：忽略空行、空按钮、空 `label` 或空 `action.data`，不能因为一个无效按钮导致整条欢迎/离群消息发送失败。
 - [x] 不修改管理员配置对象本身；渲染变量或补默认值时创建新的键盘对象，避免后续事件沿用上一次成员的数据。
 - [x] 群级键盘覆盖遵循明确规则：JSON 文本框未填写或仅包含空白时继承全局键盘；显式配置 `{ "rows": [] }` 时表示该群不显示按钮。
-- [x] 未配置按钮时可按正文格式使用普通文本或 `h('markdown', { content })`；只要存在至少一个有效按钮，整条通知必须改用以下 Raw Markdown 下挂键盘结构：
+- [x] 未配置按钮时可按正文格式使用普通文本或 `h('markdown', rendered)`；只要存在至少一个有效按钮，整条通知必须改用以下 Raw Markdown 下挂键盘结构：
 
 ```ts
 h('qq:rawmarkdown', {
@@ -172,16 +179,16 @@ h('qq:rawmarkdown', {
 - [x] 文档和实现必须说明：上例中的 `${close.command}` 只有在外部配置系统预先完成替换时才会变成实际命令；本插件自身只负责固定 `{userId}` 等占位符，不执行任意表达式。
 - [x] 只要配置中存在有效按钮，就以按钮需求优先并固定走 `qq:rawmarkdown`：`messageFormat = text` 时先把整个正文转义为安全的 Markdown 文本，再作为 `markdown.content` 发送，不能丢弃按钮。
 - [x] 按钮必须与正文一起放在同一个 `qq:rawmarkdown` 元素内发送；禁止额外发送 `qq:button`、`h('button')` 或第二条键盘消息。
-- [x] 按钮点击后由 QQ 发送普通命令消息，交给 Koishi 已注册命令处理；本插件不监听点击回调。除本插件提供的群通知开启/关闭指令外，其他按钮目标命令仍由对应 Koishi 插件实现。
+- [x] 跳转按钮交给 QQ 客户端，指令按钮交给已注册的 Koishi 命令；回调按钮支持 `welcome-messge-qq:reply:` 被动回复文本和 `welcome-messge-qq:command:` 执行 Koishi 指令，不处理其他命名空间。
 
 ### 验收标准
 
 - [x] 欢迎消息和离群消息可以分别配置不同按钮。
 - [x] JSON 多行文本框中的多行、多按钮配置能保持原始顺序发送。
 - [x] 无效按钮被局部忽略，有效正文和其他有效按钮仍可发送。
-- [x] `action.type = 2`、`permission.type = 2`、`enter` 和 `reply` 的最终发送结构符合配置与默认值。
+- [x] `action.type = 0/1/2`、`permission.type = 0/1/2/3`、指定用户/身份组数组及全部可选原生字段均能进入最终发送结构；未填写 `action.type` / `permission.type` 时仍默认 `2`。
 - [x] 按钮命令中的 `{userId}`、`{guildId}`、`{timestamp}`、`{eventType}` 等普通字段按当前事件独立渲染，不会残留上一次事件的数据；`{at}` 不进入按钮命令。
-- [ ] 点击按钮会在 QQ 中生成普通命令消息，并由目标 Koishi 命令正常接收。
+- [ ] 在真实 QQ 中分别验证跳转、回调和指令按钮：跳转由客户端打开，`reply:` 回调回复文本，`command:` 回调及普通指令按钮由目标 Koishi 命令正常接收。
 
 ---
 ## 任务 4：监听 QQ 群成员事件并发送通知
@@ -189,6 +196,7 @@ h('qq:rawmarkdown', {
 目标文件：`src/index.ts`
 
 - [x] 注册 `ctx.on('guild-member-added', ...)`，调用统一处理函数发送欢迎消息。
+- [x] 注册 `ctx.on('interaction/button', ...)`，仅处理 `welcome-messge-qq:reply:` 与 `welcome-messge-qq:command:`，使用适配器映射的按钮数据并保留 Koishi 指令权限检查。
 - [x] 注册 `ctx.on('guild-member-removed', ...)`，调用同一处理链发送离群消息。
 - [x] 在处理函数入口执行以下过滤：
   - [x] `session.platform !== 'qq'` 时立即返回。
@@ -198,10 +206,10 @@ h('qq:rawmarkdown', {
   - [x] 根据入群/离群事件检查对应的 `welcomeEnabled` 或 `leaveEnabled`。
 - [x] 将“选择配置、提取变量、渲染模板、构造消息、发送消息”拆成职责明确的小函数，避免两个事件监听器复制逻辑。
 - [x] 普通文本模式直接发送渲染后的字符串。
-- [x] Markdown 模式无有效按钮时使用 `h('markdown', { content: rendered })` 发送。
+- [x] Markdown 模式无有效按钮时使用 `h('markdown', rendered)` 发送，正文放在元素子节点中。
 - [x] 存在有效按钮时，无论正文原配置为文本还是 Markdown，都使用单个 `h('qq:rawmarkdown', { markdown: { content }, keyboard: { content: { rows } } })` 发送。
 - [x] Raw Markdown 按钮路径不设置 `stream`，且不得额外发送第二条正文或第二条按钮消息。
-- [x] 优先使用事件会话发送到当前 `session.channelId`，确保消息进入发生成员变动的 QQ 群，而不是私聊或其他频道。
+- [x] 入群与离群通知统一通过 `session.send(message)` 发送；最新版适配器会把两类网关事件 ID 写入 `session.messageId`，编码为 `msg_id + msg_seq`。只有被动回复被 QQ 明确拒绝时才回退主动群消息。
 - [x] 捕获单次发送异常并通过 `ctx.logger('welcome-messge-qq')` 记录群 OpenID、成员 OpenID 和事件类型；不得让异常中断其他事件处理。
 - [x] 成功发送只记录调试级日志，避免正常运行时刷屏。
 - [x] 离群消息统一使用“离开群聊”等中性描述，不输出“主动退群”或“被踢出”。
@@ -223,7 +231,7 @@ h('qq:rawmarkdown', {
 - [x] 注册标准 Koishi 关闭指令 `welcome-messge-qq.close`，并提供中文别名 `关闭入退群消息`、`关闭欢迎`。
 - [x] 注册对称的开启指令 `welcome-messge-qq.enable`，并提供中文别名 `开启入退群消息`、`开启欢迎`。
 - [x] 两个指令只允许在 QQ 群聊中生效；缺少 `session.guildId`、私聊或其他平台返回明确提示且不修改配置。
-- [x] 使用 `closeCommandAuthority` 统一控制开启/关闭指令权限，默认权限等级为 `3`。
+- [x] 使用 `closeCommandAuthority` 统一控制开启/关闭指令权限，默认权限等级为 `1`。
 - [x] 关闭后立即把当前群的最终覆盖规则设置为 `enabled: false`，同时停止该群的欢迎和离群消息，不影响其他群。
 - [x] 开启后立即把当前群的最终覆盖规则设置为 `enabled: true`，使后续入群、退群事件恢复发送。
 - [x] 已存在相同 `guildId` 时只修改最后一项，保持既有“最后一项覆盖”规则；需要显式覆盖时新增群级配置项。
@@ -233,6 +241,8 @@ h('qq:rawmarkdown', {
 - [x] 配置加载器不可用或写回失败时仍保持当前运行期间状态，并在指令回复与日志中明确提示重启后可能失效。
 - [x] 重复关闭或重复开启时返回“已经处于当前状态”，不重复写入配置。
 - [x] 不通过普通消息监听器或中间件识别指令文本，只使用 Koishi 指令系统。
+- [x] 开启与关闭成功响应支持分别配置正文与键盘；存在按钮时返回同一个 `qq:rawmarkdown` 元素，并允许响应按钮继续使用 `reply:` / `command:` 回调。
+- [x] 响应模板支持固定字段；关闭时 `{eventType} = close`，开启时 `{eventType} = enable`。
 
 ### 验收标准
 
@@ -252,10 +262,10 @@ h('qq:rawmarkdown', {
 - [x] 列出支持的事件、全部配置字段、默认行为、群 OpenID 获取要求和群级覆盖优先级。
 - [x] 列出 `{at}`、`{userId}`、`{username}`、`{guildId}`、`{guildName}`、`{time}`、`{date}`、`{clock}`、`{timestamp}`、`{event}`、`{eventType}`、`{botId}` 的含义、格式、适用位置和回退行为。
 - [x] 分别给出普通文本、无按钮 Markdown、带自定义按钮 Markdown 配置示例。
-- [x] 明确无按钮 Markdown 可以使用 `h('markdown')`；只要有按钮就必须使用单个 `h('qq:rawmarkdown')`，通过 `keyboard.content.rows` 下挂按钮，并且不使用流式发送。
-- [x] 文档逐项解释 `rows`、`buttons`、`render_data`、`action`、`permission`、`data`、`enter` 和可选 `reply`。
+- [x] 明确无按钮 Markdown 使用 `h('markdown', rendered)` 并把正文放在子节点；只要有按钮就必须使用单个 `h('qq:rawmarkdown')`，通过 `keyboard.content.rows` 下挂按钮，并且不使用流式发送。
+- [x] 文档逐项解释 `id`、`rows`、`buttons`、`render_data`、`action`、`permission`、指定用户/身份组数组及其他可选 QQ 原生字段。
 - [x] README 至少给出一个包含 `{at}`、`{time}` 和 Raw Markdown 下挂按钮的完整欢迎消息示例。
-- [x] 说明按钮是普通命令按钮，目标命令必须已在 Koishi 中注册，并解释 `${...}` 不由本插件执行。
+- [x] 说明 QQ 原生跳转、回调、指令按钮的处理边界：本插件仅处理自身命名空间回调；指令目标必须已在 Koishi 中注册，并解释 `${...}` 不由本插件执行。
 - [x] 提醒不同 QQ 客户端的 Markdown 和按钮显示可能存在差异。
 - [x] 明确退群事件无法可靠区分主动退出与被移出，示例文案不得暗示原因。
 - [x] 在 README 中加入最小手工验证步骤，便于管理员确认适配器是否实际收到成员事件。
@@ -293,7 +303,7 @@ git diff --check -- external/welcome-messge-qq
 - [x] TypeScript 声明构建通过。
 - [x] esbuild 能完成运行时代码打包，证明不存在仅类型通过但运行时无法解析的问题。
 - [x] `git diff --check` 无空白错误。
-- [x] 检查 `git status --short`，确认没有误改适配器源码、工作区配置或其他插件。
+- [x] 检查各仓库 `git status --short`，确认除本插件及获准修改的 `adapter-qq-crack` 外，没有误改工作区配置或其他插件。
 - [x] 清理验证产生的 `lib`、`dist`、`*.tsbuildinfo` 等临时产物；只有明确需要提交的发布产物才保留。
 - [x] 可选执行工作区 `yarn build`；若其他无关包失败，应单独记录失败包，不得用无关失败否定本插件的局部验证结果。
 
@@ -310,7 +320,7 @@ git diff --check -- external/welcome-messge-qq
 
 在一个测试群中使用真实 QQ 开放平台机器人和 `adapter-qq-crack`：
 
-- [ ] 新成员加入后，目标群只收到一条欢迎消息。
+- [x] 2026-07-22 21:54:08 真实 `GROUP_MEMBER_ADD` 触发一条欢迎请求，QQ 返回消息 ID；请求与日志中未出现第二条欢迎消息。
 - [ ] 成员离开后，目标群只收到一条中性离群消息。
 - [ ] 文案中的 `{at}`、`{userId}`、`{username}`、`{guildId}`、`{guildName}`、`{time}`、`{date}`、`{clock}`、`{timestamp}`、`{event}`、`{eventType}`、`{botId}` 均被正确替换。
 - [ ] 入群欢迎消息中的 `{at}` 真正提及新成员；退群消息中的 `{at}` 使用本次离群成员 OpenID，并记录 QQ 客户端对已离群成员提及的实际显示结果。
@@ -319,20 +329,20 @@ git diff --check -- external/welcome-messge-qq
 - [ ] 普通文本模式在 QQ 客户端显示正确。
 - [ ] Markdown 模式在手机 QQ 与 Windows QQ 至少各检查一次，确认换行、按钮排列和按钮样式可接受。
 - [ ] 分别验证欢迎按钮与离群按钮，确认二者使用各自配置。
-- [ ] 点击 `action.type = 2` 的按钮后，QQ 会发送配置的 `action.data` 普通命令，目标 Koishi 命令能够接收。
+- [ ] 分别验证 `action.type = 0/1/2`：跳转按钮可打开目标、命名空间回调可回复或执行命令、指令按钮可被目标 Koishi 命令接收。
 - [ ] `enter = true` 时自动发送；`enter = false` 时仅填入输入框，行为与配置一致。
-- [ ] `permission.type = 2` 的按钮可由测试成员正常点击；无效按钮配置不会阻断正文发送。
-- [ ] 抓取或记录最终元素结构，确认正文位于 `markdown.content`、按钮位于同一元素的 `keyboard.content.rows`，且发送链路中不存在独立 `qq:button` / `h('button')`。
+- [ ] 分别验证 `permission.type = 0/1/2/3`、`specify_user_ids`、`specify_role_ids` 以及其他原生可选字段；无效按钮配置不会阻断正文发送。
+- [x] 已抓取真实请求：正文位于 `markdown.content`，两行按钮位于同一请求的 `keyboard.content.rows`，同时包含 `msg_seq: 1` 与 `GROUP_MEMBER_ADD event_id`，没有独立按钮消息。
 - [ ] 适配器未提供 `operatorId` 时，插件仍正常发送，且不推断离群原因。
-- [ ] 重启 Koishi 后配置仍可加载，两个事件监听器不会重复注册或重复发送。
+- [ ] 重启 Koishi 后配置仍可加载，两个成员事件监听器和一个按钮回调监听器不会重复注册或重复发送。
 
 ## 完成定义
 
 只有同时满足以下条件才算完成：
 
-- [x] 配置、扩展模板字段、真实成员提及、事件时间格式化、群级覆盖、自定义按钮、群内开启/关闭指令和两个成员事件处理均已实现。
+- [x] 配置、扩展模板字段、真实成员提及、事件时间格式化、群级覆盖、完整 QQ 原生按钮透传、群内开启/关闭指令和两个成员事件处理均已实现。
 - [x] 非 QQ 事件、缺失字段、机器人事件和发送失败均有明确处理。
-- [x] 文档与实现一致，明确 OpenID、Raw Markdown 下挂普通命令按钮和退群原因限制。
+- [x] 文档与实现一致，明确 OpenID、Raw Markdown 下挂 QQ 原生按钮、回调处理边界和退群原因限制。
 - [x] 插件局部 TypeScript 与 esbuild 检查通过。
 - [ ] 至少完成一次真实 QQ 入群、一次真实 QQ 退群和一次按钮点击命令执行的端到端验证，并记录实际结果。
 ---
@@ -341,12 +351,23 @@ git diff --check -- external/welcome-messge-qq
 
 ### 已完成的本地验证
 
-- [x] `yarn tsx --test external/welcome-messge-qq/tests/index.spec.ts`：26 项测试通过。
-- [x] 测试覆盖全部固定占位符、固定事件时间、跨时区日期、OpenID 回退、群级继承、显式空键盘、事件开关、机器人过滤、发送失败、畸形按钮配置，以及开启/关闭指令的即时切换、递归配置写回、`scope` 边界和重复执行。
-- [x] 使用 `adapter-qq-crack` 的真实 `parseQQMarkdownElement()` 解析生成元素，确认正文位于 `markdown.content`，按钮位于同一请求的 `keyboard.content.rows`。
+- [x] `yarn tsx --test external/welcome-messge-qq/tests/index.spec.ts`：33 项测试通过。
+- [x] 测试确认缺失按钮 ID 会自动生成；`GROUP_MEMBER_ADD` 与 `GROUP_MEMBER_REMOVE` 都映射 `session.messageId`，最终请求分别包含对应 `msg_id` 与 `msg_seq: 1`，且不携带 `event_id`。
+- [x] 新增开启/关闭成功响应构造测试：普通 Markdown 与带键盘 Raw Markdown 均通过；响应按钮自动生成 ID，并可继续触发命名空间回调命令。
+- [x] 已导出 Koishi `usage` 字段，说明内置默认配置、模板变量和按钮回调命名空间。
+- [x] 已将 `messageFormat` 与 `scope` 改为中文说明的单选项：显示“普通消息（推荐）/Markdown 消息”和“全部 QQ 群（推荐）/仅指定的 QQ 群”，并同步 `usage`、README 与 Schema 断言。
+- [x] 已把 `C:\koishi-app\koishi.yml` 中当前使用的欢迎/离群正文、四套按钮键盘、开启/关闭响应正文和权限等级 `1` 固化为插件默认配置；首次启用无需再手动复制该配置。
+- [x] 按当前要求删除 `createKeyboardTextSchema()` 及其 options 接口；全局与群级 6 个键盘配置改为直接声明 `Schema.string().role('textarea').collapse()`，继续保留 JSON 文本框与默认键盘，并按要求移除追加的长篇按钮格式说明。
+- [x] 使用当前关闭响应配置执行编码探针：`INTERACTION_CREATE` 请求包含自定义 Markdown、“重新开启”按钮、自动 ID `0-0` 与事件 `event_id`；最新版适配器不会为该路径额外生成 `msg_seq`。
+- [x] 测试覆盖全部固定占位符、固定事件时间、跨时区日期、OpenID 回退、群级继承、显式空键盘、事件开关、机器人过滤、发送失败、畸形按钮配置、完整 QQ 原生按钮字段透传，以及开启/关闭指令的即时切换、递归配置写回、`scope` 边界和重复执行。
+- [x] 使用 `adapter-qq-crack` 的真实 `parseQQMarkdownElement()` 解析生成元素，确认正文位于 `markdown.content`，按钮位于同一请求的 `keyboard.content.rows`；`id`、`visited_label`、`action.type = 1`、`permission.type = 3`、身份组、锚点、点击次数、频道列表开关和不支持提示均进入最终请求。
 - [x] 针对真实入群不发送问题对照 `adapter-qq-crack` 的 `adaptSession()` 与 `QQMessageEncoder`：确认 `GROUP_MEMBER_ADD` 会映射为 `guild-member-added`；修复了无按钮 Markdown 误把正文放在 `attrs.content` 导致适配器从空 `children` 读取到空消息的问题。
-- [x] 根据真实 QQ 响应 `40034027` 确认成员加入/离开事件不能用其 `event_id` 被动回复；成员通知现调用 `session.bot.sendMessage(session.channelId, message, session.event.referrer)` 作为主动群消息发送，不再传 `{ session }`，并让发送异常进入本插件日志。
-- [x] 使用 `QQMessageEncoder` 验证最终成员通知请求包含非空 Markdown 正文，且 `event_id === undefined`。
+- [x] 已对照原作者最新版 `adapter-qq-crack`：`adaptSession()` 会为 `GROUP_MEMBER_ADD` 与 `GROUP_MEMBER_REMOVE` 都设置 `session.messageId = input.id`；插件已改为两类通知统一优先被动回复。
+- [x] 使用最新版 `QQMessageEncoder` 验证入群与离群请求分别包含事件对应的 `msg_id` 和 `msg_seq: 1`，两者 `event_id === undefined`，Markdown 正文与键盘保持完整。
+- [x] 不再维护适配器补丁；`msg_id`、`msg_seq` 与重复序号重试均使用原作者最新版实现，插件仅负责调用事件会话发送。
+- [x] 使用当前 `welcomeKeyboard` 配置执行本地编码探针，最终请求包含成员加入事件的 `msg_id`、`msg_seq: 1`、`keyboard.content.rows` 与自动按钮 ID。
+- [x] 真实 QQ 验证：2026-07-22 21:54:08 收到 `GROUP_MEMBER_ADD`，21:54:09 发出的请求包含 `keyboard.content.rows`、按钮 ID `0-0` / `1-0`、`msg_seq: 1` 与事件 `event_id`，21:54:10 QQ 返回成功消息 ID。
+- [x] 真实按钮点击验证适配器映射：21:54:20 收到 `INTERACTION_CREATE`，`button_id: 0-0`、`button_data: /关闭欢迎`，并成功完成 interaction ACK；随后已实现并测试本插件命名空间回调处理。
 - [x] 已执行 `yarn yakumo esbuild welcome-messge-qq` 生成运行时必需的 `lib/index.js`，并用 `require.resolve('koishi-plugin-welcome-messge-qq')` 确认 Koishi 可解析插件入口。
 - [x] 使用真实 Koishi `Context` 完成插件加载、监听器与开关指令销毁、重新加载测试，确认重启路径不会残留旧监听器、重复发送或残留指令别名。
 - [x] 使用真实 Koishi `NodeLoader` 启动临时配置，依次调用已注册的关闭与开启指令处理函数，确认回复“已关闭本群的入群与退群消息”和“已开启本群的入群与退群消息”，且临时 YAML 最终实际写回 `guildId: TEST_ENABLE_GUILD` 与 `enabled: true`；临时探针、配置与构建产物均已清理。
@@ -359,11 +380,11 @@ git diff --check -- external/welcome-messge-qq
 
 ### 仍需真实 QQ 环境完成
 
-当前 `C:\koishi-app\koishi.yml` 已配置 `adapter-qq-crack`，但尚未配置本插件，且检查时没有正在运行的 Koishi 进程；仓库环境也没有可自动控制的测试群成员账号。因此以下结果仍不能标记为完成：
+2026-07-22 21:54:08 使用旧版适配器完成过 `GROUP_MEMBER_ADD event_id + msg_seq` 的真实入群验证。2026-07-23 已切换为原作者最新版的 `session.messageId -> msg_id + msg_seq` 实现；仍需在真实 QQ 环境重新验证新版入群、离群与按钮回调。
 
-- [ ] 真实 QQ 成员加入后只收到一条欢迎消息。
+- [x] 真实 QQ 成员加入后成功收到带两行原生按钮的一条欢迎消息；QQ API 返回成功消息 ID。
 - [ ] 真实 QQ 成员离开后只收到一条中性离群消息，并记录已离群成员 `{at}` 的客户端显示。
 - [ ] 在手机 QQ 与 Windows QQ 检查 Markdown、换行和按钮排列。
-- [ ] 实际点击按钮，分别验证 `enter = true`、`enter = false`、`permission.type = 2` 和目标 Koishi 命令执行。
+- [ ] 实际验证 `action.type = 0/1/2`、`permission.type = 0/1/2/3`、指定用户/身份组、`enter = true/false` 及其他原生字段；同时点击验证本插件的 `reply:` 与 `command:` 回调。
 
-未对 `C:\koishi-app\koishi.yml`、`adapter-qq-crack` 源码或真实机器人配置进行修改，也未在没有指定测试群的情况下主动连接机器人或发送外部消息。
+当前 `C:\koishi-app\koishi.yml` 的“关闭欢迎”按钮已改为命名空间回调命令。Koishi 已于 2026-07-22 22:25 重新启动并成功加载 `adapter-qq-crack` 与本插件；下一次真实入群后点击新按钮即可验收回调指令执行。
