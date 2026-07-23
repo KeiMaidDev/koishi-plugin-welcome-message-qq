@@ -209,7 +209,7 @@ h('qq:rawmarkdown', {
 - [x] Markdown 模式无有效按钮时使用 `h('markdown', rendered)` 发送，正文放在元素子节点中。
 - [x] 存在有效按钮时，无论正文原配置为文本还是 Markdown，都使用单个 `h('qq:rawmarkdown', { markdown: { content }, keyboard: { content: { rows } } })` 发送。
 - [x] Raw Markdown 按钮路径不设置 `stream`，且不得额外发送第二条正文或第二条按钮消息。
-- [x] 入群与离群通知统一通过 `session.send(message)` 发送；最新版适配器会把两类网关事件 ID 写入 `session.messageId`，编码为 `msg_id + msg_seq`。只有被动回复被 QQ 明确拒绝时才回退主动群消息。
+- [x] 入群与离群通知统一通过 `session.send(message)` 发送；最新版适配器会把两类网关事件 ID 写入 `session.messageId`，编码为 `msg_id + msg_seq`。QQ 返回 `40034024` 或 `40034027` 时回退主动群消息。
 - [x] 捕获单次发送异常并通过 `ctx.logger('welcome-messge-qq')` 记录群 OpenID、成员 OpenID 和事件类型；不得让异常中断其他事件处理。
 - [x] 成功发送只记录调试级日志，避免正常运行时刷屏。
 - [x] 离群消息统一使用“离开群聊”等中性描述，不输出“主动退群”或“被踢出”。
@@ -363,6 +363,7 @@ git diff --check -- external/welcome-messge-qq
 - [x] 使用 `adapter-qq-crack` 的真实 `parseQQMarkdownElement()` 解析生成元素，确认正文位于 `markdown.content`，按钮位于同一请求的 `keyboard.content.rows`；`id`、`visited_label`、`action.type = 1`、`permission.type = 3`、身份组、锚点、点击次数、频道列表开关和不支持提示均进入最终请求。
 - [x] 针对真实入群不发送问题对照 `adapter-qq-crack` 的 `adaptSession()` 与 `QQMessageEncoder`：确认 `GROUP_MEMBER_ADD` 会映射为 `guild-member-added`；修复了无按钮 Markdown 误把正文放在 `attrs.content` 导致适配器从空 `children` 读取到空消息的问题。
 - [x] 已对照原作者最新版 `adapter-qq-crack`：`adaptSession()` 会为 `GROUP_MEMBER_ADD` 与 `GROUP_MEMBER_REMOVE` 都设置 `session.messageId = input.id`；插件已改为两类通知统一优先被动回复。
+- [x] 2026-07-23 13:09:39 真实入群请求使用 `msg_id: GROUP_MEMBER_ADD:...` 后，QQ 返回 `40034024 请求参数msg_id无效或越权`；插件已将 `40034024` 纳入被动回复拒绝判断，失败请求会回退为不携带事件会话的主动群消息，并保留 `40034027` 回退。
 - [x] 使用最新版 `QQMessageEncoder` 验证入群与离群请求分别包含事件对应的 `msg_id` 和 `msg_seq: 1`，两者 `event_id === undefined`，Markdown 正文与键盘保持完整。
 - [x] 不再维护适配器补丁；`msg_id`、`msg_seq` 与重复序号重试均使用原作者最新版实现，插件仅负责调用事件会话发送。
 - [x] 使用当前 `welcomeKeyboard` 配置执行本地编码探针，最终请求包含成员加入事件的 `msg_id`、`msg_seq: 1`、`keyboard.content.rows` 与自动按钮 ID。

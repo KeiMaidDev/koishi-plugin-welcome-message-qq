@@ -556,17 +556,19 @@ export async function persistDisabledGuildConfig(
   return persistGuildConfig(ctx, groups, previousConfig)
 }
 
+const PASSIVE_REPLY_REJECTED_CODES = new Set([40034024, 40034027])
+
 function isPassiveReplyRejected(error: unknown): boolean {
   if (error && typeof error === 'object') {
     const response = (error as { response?: { data?: { code?: unknown; err_code?: unknown } } }).response
     const code = response?.data?.err_code ?? response?.data?.code
-    if (code === 40034027) return true
+    if (typeof code === 'number' && PASSIVE_REPLY_REJECTED_CODES.has(code)) return true
 
     const errors = (error as { errors?: unknown }).errors
     if (Array.isArray(errors) && errors.some(isPassiveReplyRejected)) return true
   }
   const message = error instanceof Error ? error.message : String(error)
-  return /(?:^|\D)40034027(?:\D|$)/.test(message)
+  return /(?:^|\D)(?:40034024|40034027)(?:\D|$)/.test(message)
 }
 
 export interface SendMemberNotificationOptions {

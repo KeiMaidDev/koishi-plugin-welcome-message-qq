@@ -352,7 +352,7 @@ await session.send(message)
 
 事件仍在有效时间内时，适配器的 `QQMessageEncoder` 会把 `session.messageId` 写入请求的 `msg_id`，并为同一事件生成从 `1` 开始递增的 `msg_seq`。成员加入和成员离开请求都不再依赖 `event_id`；`INTERACTION_CREATE` 等没有 `messageId` 的回调事件仍可使用网关事件 ID 作为 `event_id`。
 
-如果 QQ 明确拒绝被动回复，插件会回退到 `session.bot.sendMessage(...)` 主动发送。其他网络或发送错误不会自动重发，避免产生重复通知。
+如果 QQ 返回 `40034024`（`msg_id` 无效或越权）或 `40034027`（事件不能回复消息），插件会回退到 `session.bot.sendMessage(...)` 主动发送。其他网络或发送错误不会自动重发，避免产生重复通知。
 
 无按钮 Markdown 必须把正文放在 `h('markdown', ...)` 的子节点中；该适配器从 `children` 读取 Markdown 正文，不读取 `attrs.content`。
 
