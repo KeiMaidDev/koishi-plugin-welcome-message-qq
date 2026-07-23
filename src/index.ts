@@ -32,7 +32,7 @@ export const name = 'welcome-messge-qq'
 
 export const usage = `
 
-本插件配合 <code>adapter-qq-crack</code> 使用。
+本插件需配合 [adapter-qq-crack](/market?keyword=adapter-qq-crack) 使用。
 
 ## 默认配置
 
