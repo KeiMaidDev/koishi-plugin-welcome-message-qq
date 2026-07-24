@@ -558,14 +558,29 @@ export async function persistDisabledGuildConfig(
 
 const PASSIVE_REPLY_REJECTED_CODES = new Set([40034024, 40034027])
 
+function hasPassiveReplyRejectedCode(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as { code?: unknown; err_code?: unknown }
+  const code = record.err_code ?? record.code
+  return (typeof code === 'number' || typeof code === 'string')
+    && PASSIVE_REPLY_REJECTED_CODES.has(Number(code))
+}
+
 function isPassiveReplyRejected(error: unknown): boolean {
   if (error && typeof error === 'object') {
-    const response = (error as { response?: { data?: { code?: unknown; err_code?: unknown } } }).response
-    const code = response?.data?.err_code ?? response?.data?.code
-    if (typeof code === 'number' && PASSIVE_REPLY_REJECTED_CODES.has(code)) return true
-
-    const errors = (error as { errors?: unknown }).errors
-    if (Array.isArray(errors) && errors.some(isPassiveReplyRejected)) return true
+    const record = error as {
+      data?: unknown
+      response?: { data?: unknown }
+      cause?: unknown
+      errors?: unknown
+    }
+    if (
+      hasPassiveReplyRejectedCode(record)
+      || hasPassiveReplyRejectedCode(record.data)
+      || hasPassiveReplyRejectedCode(record.response?.data)
+    ) return true
+    if (record.cause && isPassiveReplyRejected(record.cause)) return true
+    if (Array.isArray(record.errors) && record.errors.some(isPassiveReplyRejected)) return true
   }
   const message = error instanceof Error ? error.message : String(error)
   return /(?:^|\D)(?:40034024|40034027)(?:\D|$)/.test(message)
@@ -581,20 +596,36 @@ export async function sendMemberNotification(
   eventType: NotificationEventType,
   options: SendMemberNotificationOptions = {},
 ) {
-  if (typeof session.send === 'function') {
+  const bot = session.bot
+  const channelId = session.channelId
+  const sendActive = bot && typeof bot.sendMessage === 'function' && channelId
+    ? () => bot.sendMessage(channelId, message, session.event.referrer)
+    : undefined
+
+  if (eventType === 'leave' && sendActive) {
     try {
-      // The latest adapter-qq-crack maps both GROUP_MEMBER_ADD and GROUP_MEMBER_REMOVE
-      // gateway ids to session.messageId, so the encoder replies with msg_id + msg_seq.
-      return await session.send(message)
+      // A member-removal event is not consistently replyable through event_id, so leave
+      // notifications prefer an ordinary active group message.
+      return await sendActive()
     } catch (error) {
-      if (!isPassiveReplyRejected(error)) throw error
-      options.debug?.(`${eventType === 'join' ? '入群' : '离群'}事件的被动回复被 QQ 拒绝，回退为主动群消息。`)
+      if (typeof session.send !== 'function') throw error
+      options.debug?.(`离群事件的主动群消息发送失败，回退为被动回复。`)
+      return session.send(message)
     }
   }
 
-  if (session.bot && typeof session.bot.sendMessage === 'function' && session.channelId) {
-    return session.bot.sendMessage(session.channelId, message, session.event.referrer)
+  if (typeof session.send === 'function') {
+    try {
+      // Join notifications prefer the event-scoped passive reply. If QQ rejects that
+      // lifecycle reply, retry below as an active group message.
+      return await session.send(message)
+    } catch (error) {
+      if (!isPassiveReplyRejected(error)) throw error
+      options.debug?.(`入群事件的被动回复被 QQ 拒绝，回退为主动群消息。`)
+    }
   }
+
+  if (sendActive) return sendActive()
   throw new Error('当前 QQ 会话不支持发送群成员通知。')
 }
 
