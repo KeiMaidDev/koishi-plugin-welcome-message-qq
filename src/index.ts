@@ -590,6 +590,14 @@ export interface SendMemberNotificationOptions {
   debug?: (message: string) => void
 }
 
+const MAX_RECENT_MEMBER_EVENTS = 512
+
+function resolveMemberEventKey(session: Session, eventType: NotificationEventType) {
+  const eventId = (session as Session & { qq?: { id?: unknown } }).qq?.id
+  if (typeof eventId !== 'string' || !eventId.trim()) return
+  return `${eventType}:${eventId.trim()}`
+}
+
 export async function sendMemberNotification(
   session: Session,
   message: string | h,
@@ -633,6 +641,8 @@ export function apply(ctx: Context, config: PluginConfig) {
   const logger = ctx.logger(name)
   let activeConfig = config
   let groupIndex = createGroupConfigIndex(activeConfig.groups)
+  const recentMemberEvents = new Set<string>()
+  const recentMemberEventOrder: string[] = []
   for (const guildId of groupIndex.duplicates) {
     logger.warn('检测到重复的群 OpenID %s，将使用 groups 中最后一项配置。', guildId)
   }
@@ -664,6 +674,19 @@ export function apply(ctx: Context, config: PluginConfig) {
         warn: value => logger.warn('%s guildId=%s userId=%s', value, session.guildId, session.userId),
       })
       if (!message) return
+
+      const eventKey = resolveMemberEventKey(session, eventType)
+      if (eventKey && recentMemberEvents.has(eventKey)) {
+        logger.debug('忽略重复的 QQ 成员事件：eventId=%s', eventKey)
+        return
+      }
+      if (eventKey) {
+        recentMemberEvents.add(eventKey)
+        recentMemberEventOrder.push(eventKey)
+        if (recentMemberEventOrder.length > MAX_RECENT_MEMBER_EVENTS) {
+          recentMemberEvents.delete(recentMemberEventOrder.shift()!)
+        }
+      }
 
       await sendMemberNotification(session, message, eventType, {
         debug: value => logger.debug('%s guildId=%s userId=%s', value, session.guildId, session.userId),
