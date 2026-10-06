@@ -85,7 +85,7 @@ export const usage = `
 
 - 群覆盖行 → 全局默认行 → 内置默认值，逐字段生效。
 - 某字段留空（NULL）表示继承，显式空白表示“这一项就是空的”（不发送正文或不显示按钮）。
-- 安装控制台插件后可以在“群覆盖管理”页按群 OpenID 搜索、逐字段覆盖/置空、删除覆盖行，并把旧配置里的 <code>groups</code> 一次性迁移进数据库。该页面需要 Koishi 权限等级 <code>4</code>。
+- 安装控制台插件后可以在“入群欢迎管理”页按群 OpenID 搜索、逐字段覆盖/置空、删除覆盖行，并把旧配置里的 <code>groups</code> 一次性迁移进数据库。该页面需要 Koishi 权限等级 <code>4</code>。
 
 ## 默认内容
 
@@ -194,7 +194,7 @@ const legacyGroupSchema: Schema<GroupConfig> = Schema.object({
     Schema.const('text').description('普通消息。'),
     Schema.const('markdown').description('Markdown 消息。'),
   ]).role('radio').description('消息显示方式。'),
-}).description('已弃用：请在“群覆盖管理”页把这里的内容迁移进数据库')
+}).description('已弃用：旧配置迁移通道会读取这里的内容，配置页已不再显示本分组')
 
 export const Config: Schema<PluginConfig> = Schema.object({
   scope: Schema.union([
@@ -217,7 +217,7 @@ export const Config: Schema<PluginConfig> = Schema.object({
   closeResponseKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_CLOSE_RESPONSE_KEYBOARD),
   enableResponseMessage: Schema.string().role('textarea').hidden().default(DEFAULT_ENABLE_RESPONSE_MESSAGE),
   enableResponseKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_ENABLE_RESPONSE_KEYBOARD),
-  groups: Schema.array(legacyGroupSchema).default([]).description('已弃用：群级状态已迁入数据库，请在“群覆盖管理”页一次性迁移；本字段将在 0.2.0 移除。'),
+  groups: Schema.array(legacyGroupSchema).default([]).hidden().description('已弃用：群级状态已迁入数据库，仍可被「迁移旧配置」读取；本字段将在 0.2.0 移除。'),
 })
 
 function normalizeTimeZone(timeZone: string | undefined, warn: (message: string) => void) {

@@ -60,7 +60,7 @@ export interface ConsoleOptions {
 }
 
 /**
- * 群覆盖管理页的服务端子插件。
+ * 入群欢迎管理页的服务端子插件。
  * console 服务未就绪时 cordis 会在其可用后重新加载本子插件，因此这里可以放心 inject 可选。
  */
 export const setupConsole = Object.assign(

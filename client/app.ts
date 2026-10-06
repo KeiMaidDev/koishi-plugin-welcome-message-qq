@@ -5,6 +5,9 @@ import * as api from './api'
 
 const el = (name: string) => resolveComponent(name)
 
+/** 控制台页名：侧栏入口与页内标题共用同一字面量。 */
+export const PANEL_NAME = '入群欢迎管理'
+
 interface TextFieldMeta {
   key: string
   label: string
@@ -333,9 +336,9 @@ export default defineComponent({
       const rows = list.value?.rows ?? []
       const total = list.value?.total ?? 0
       return h('div', { style: 'padding:16px' }, [
-        h('div', { style: 'font-size:16px;font-weight:600;margin-bottom:4px' }, '群覆盖管理'),
+        h('div', { style: 'font-size:16px;font-weight:600;margin-bottom:4px' }, PANEL_NAME),
         h('div', { style: 'font-size:12px;color:#909399;margin-bottom:12px' }, [
-          '群级状态保存在数据库表 welcome_message_group 中；插件不会改写 koishi.yml。',
+          '本页同时管理入群欢迎、离群通知与开关回执三类内容。群级状态保存在数据库表 welcome_message_group 中；插件不会改写 koishi.yml。',
           '内容字段可以逐项选择「继承全局」或「覆盖」，选「覆盖」后留空即显式置空。',
         ]),
         h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' }, [

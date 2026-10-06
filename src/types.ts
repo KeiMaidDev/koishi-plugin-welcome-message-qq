@@ -158,7 +158,7 @@ export interface Config {
    */
   leaveKeyboard?: string
   /**
-   * @deprecated 群级状态改由数据库保存；本字段只用于群覆盖管理页的一次性迁移，将在 0.2.0 移除。
+   * @deprecated 群级状态改由数据库保存；本字段只由旧配置迁移通道读取，插件配置页不再显示，将在 0.2.0 移除。
    */
   groups: GroupConfig[]
 }
