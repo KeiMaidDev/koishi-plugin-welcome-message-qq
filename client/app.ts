@@ -1,46 +1,23 @@
 import { message, messageBox } from '@koishijs/client'
 import { defineComponent, h, onMounted, reactive, ref, resolveComponent } from 'vue'
-import { validateKeyboardJson } from '../src/keyboard'
+import {
+  collectGroupInput,
+  collectKeyboardErrors,
+  createFormState,
+  FORMAT_FIELDS,
+  overrideSummary,
+  TEXT_FIELDS,
+  type EditorState,
+  type FieldEditor,
+  type FormatMode,
+  type TextFieldMeta,
+} from '../src/console-form'
 import * as api from './api'
 
 const el = (name: string) => resolveComponent(name)
 
 /** 控制台页名：侧栏入口与页内标题共用同一字面量。 */
 export const PANEL_NAME = '入群欢迎管理'
-
-interface TextFieldMeta {
-  key: string
-  label: string
-  rows: number
-  keyboard?: boolean
-  hint?: string
-}
-
-const TEXT_FIELDS: TextFieldMeta[] = [
-  { key: 'welcomeMessage', label: '入群文案', rows: 3 },
-  { key: 'leaveMessage', label: '离群文案', rows: 3 },
-  { key: 'welcomeKeyboard', label: '入群按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 该群不显示按钮' },
-  { key: 'leaveKeyboard', label: '离群按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 该群不显示按钮' },
-  { key: 'closeResponseMessage', label: '关闭回执文案', rows: 3 },
-  { key: 'closeResponseKeyboard', label: '关闭回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
-  { key: 'enableResponseMessage', label: '开启回执文案', rows: 3 },
-  { key: 'enableResponseKeyboard', label: '开启回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
-]
-
-const FORMAT_FIELDS = [
-  { key: 'messageFormat', label: '入群/离群消息格式' },
-  { key: 'commandResponseFormat', label: '开关回执格式' },
-]
-
-type FormatMode = 'inherit' | 'text' | 'markdown'
-
-interface EditorState {
-  id: string
-  sentinel: boolean
-  enabled: boolean
-  welcomeEnabled: boolean
-  leaveEnabled: boolean
-}
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -69,7 +46,7 @@ export default defineComponent({
     const newId = ref('')
     const dialogVisible = ref(false)
     const editing = ref<EditorState | null>(null)
-    const editors = reactive<Record<string, { mode: 'inherit' | 'override'; value: string }>>({})
+    const editors = reactive<Record<string, FieldEditor>>({})
     const formats = reactive<Record<string, FormatMode>>({})
     const errors = reactive<Record<string, string>>({})
 
@@ -86,25 +63,13 @@ export default defineComponent({
     }
 
     function resetForm(row: api.ConsoleGroupRow | null, id: string) {
-      editing.value = {
-        id,
-        sentinel: row?.sentinel ?? false,
-        enabled: row?.enabled ?? true,
-        welcomeEnabled: row ? row.welcomeEnabled !== false : true,
-        leaveEnabled: row ? row.leaveEnabled !== false : true,
-      }
-      for (const field of TEXT_FIELDS) {
-        const value = row ? (row as unknown as Record<string, unknown>)[field.key] : null
-        editors[field.key] = {
-          mode: typeof value === 'string' ? 'override' : 'inherit',
-          value: typeof value === 'string' ? value : '',
-        }
-        delete errors[field.key]
-      }
-      for (const field of FORMAT_FIELDS) {
-        const value = row ? (row as unknown as Record<string, unknown>)[field.key] : null
-        formats[field.key] = value === 'markdown' ? 'markdown' : value === 'text' ? 'text' : 'inherit'
-      }
+      const state = createFormState(row, id)
+      editing.value = state.editing
+      for (const key of Object.keys(editors)) delete editors[key]
+      Object.assign(editors, state.editors)
+      for (const key of Object.keys(formats)) delete formats[key]
+      Object.assign(formats, state.formats)
+      for (const field of TEXT_FIELDS) delete errors[field.key]
     }
 
     function openEdit(row: api.ConsoleGroupRow) {
@@ -127,41 +92,14 @@ export default defineComponent({
     }
 
     function validateForm(): boolean {
-      let valid = true
+      const found = collectKeyboardErrors(editors)
       for (const field of TEXT_FIELDS) {
         if (!field.keyboard) continue
-        const editor = editors[field.key]
-        const invalid = editor.mode === 'override' ? validateKeyboardJson(editor.value) : undefined
-        if (invalid) {
-          errors[field.key] = invalid
-          valid = false
-        } else {
-          delete errors[field.key]
-        }
+        if (found[field.key]) errors[field.key] = found[field.key]
+        else delete errors[field.key]
       }
-      if (!valid) message.error('键盘 JSON 有格式错误，请修正后再保存。')
-      return valid
-    }
-
-    function collectInput(): api.ConsoleGroupInput {
-      const current = editing.value!
-      const input: api.ConsoleGroupInput = {
-        id: current.id,
-        enabled: current.sentinel ? true : current.enabled,
-      }
-      if (current.sentinel) {
-        input.welcomeEnabled = current.welcomeEnabled
-        input.leaveEnabled = current.leaveEnabled
-      }
-      for (const field of TEXT_FIELDS) {
-        const editor = editors[field.key]
-        input[field.key] = editor.mode === 'override' ? editor.value : null
-      }
-      for (const field of FORMAT_FIELDS) {
-        const mode = formats[field.key]
-        input[field.key] = mode === 'inherit' ? null : mode
-      }
-      return input
+      if (Object.keys(found).length) message.error('键盘 JSON 有格式错误，请修正后再保存。')
+      return !Object.keys(found).length
     }
 
     async function save() {
@@ -169,7 +107,7 @@ export default defineComponent({
       if (!current || !validateForm()) return
       saving.value = true
       try {
-        await api.updateGroup(collectInput())
+        await api.updateGroup(collectGroupInput({ editing: current, editors, formats }))
         message.success(current.sentinel ? '全局默认已保存' : '群覆盖已保存')
         dialogVisible.value = false
         await refresh()
@@ -240,15 +178,6 @@ export default defineComponent({
       query.search = searchInput.value.trim()
       query.page = 1
       void refresh()
-    }
-
-    function overrideSummary(row: api.ConsoleGroupRow): string {
-      const record = row as unknown as Record<string, unknown>
-      const count = [...TEXT_FIELDS.map(field => field.key), ...FORMAT_FIELDS.map(field => field.key)]
-        .filter(key => record[key] !== null && record[key] !== undefined)
-        .length
-      if (!count) return row.sentinel ? '全部使用内置默认' : '全部继承全局'
-      return row.sentinel ? `${count} 项自定义` : `${count} 个字段覆盖`
     }
 
     onMounted(() => { void refresh() })
