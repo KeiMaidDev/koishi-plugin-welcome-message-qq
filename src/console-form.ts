@@ -139,3 +139,76 @@ export function overrideSummary(row: ConsoleGroupRow): string {
   if (!count) return row.sentinel ? '全部使用内置默认' : '全部继承全局'
   return row.sentinel ? `${count} 项自定义` : `${count} 个字段覆盖`
 }
+
+/** 内容字段键集合：与 `ConsoleGroupRow` 的内容字段一一对应，收集与摘共用。 */
+export const FIELD_KEYS: readonly string[] = [
+  ...TEXT_FIELDS.map(field => field.key),
+  ...FORMAT_FIELDS.map(field => field.key),
+]
+
+/**
+ * 按字段键对比表单状态与来源行，收集真正变化的内容字段。
+ *
+ * `row` 是详情数据来源的数据库行（新建草稿为 `null`，此时任何非继承值都算改动）。
+ * 返回 null 表示内容字段与来源行完全一致；否则只带变化字段的键 +
+ * `id` / `enabled`（哨兵行另带全局入群 / 离群开关，开关变化由 `collectSaveInput` 单独判定）。
+ */
+export function collectGroupChanges(
+  state: FormState,
+  row: ConsoleGroupRow | null,
+): ConsoleGroupInput | null {
+  const changed: Record<string, boolean> = {}
+  for (const field of TEXT_FIELDS) {
+    const editor = state.editors[field.key]
+    const original = fieldValue(row, field.key)
+    changed[field.key] = editor.mode === 'override'
+      ? editor.value !== original
+      : original !== null
+  }
+  for (const field of FORMAT_FIELDS) {
+    const mode = state.formats[field.key]
+    // 表单里的「继承」提交为 null，与行值比较前先换算成同一套取值
+    const next = mode === 'inherit' ? null : mode
+    changed[field.key] = next !== fieldValue(row, field.key)
+  }
+  if (!Object.values(changed).some(Boolean)) return null
+  const input = collectGroupInput(state)
+  for (const key of Object.keys(input)) {
+    if (key in changed && !changed[key]) delete input[key]
+  }
+  return input
+}
+
+/**
+ * 开关是否与来源行不同：群行看总开关，哨兵行看全局入群 / 离群开关。
+ * 开关不参与内容差异收集（保存时总是提交），草稿以「默认开启」为基准。
+ */
+export function hasSwitchChanges(state: FormState, row: ConsoleGroupRow | null): boolean {
+  const { editing } = state
+  if (editing.sentinel) {
+    return editing.welcomeEnabled !== (row ? row.welcomeEnabled !== false : true)
+      || editing.leaveEnabled !== (row ? row.leaveEnabled !== false : true)
+  }
+  return editing.enabled !== (row ? row.enabled !== false : true)
+}
+
+/**
+ * 收集本次保存要提交的输入：内容字段只带真正变化的，开关总是提交。
+ * 返回 null 表示详情与来源行完全一致，没有需要保存的内容。
+ */
+export function collectSaveInput(state: FormState, row: ConsoleGroupRow | null): ConsoleGroupInput | null {
+  const input = collectGroupChanges(state, row)
+  if (input) return input
+  if (!hasSwitchChanges(state, row)) return null
+  const switches = collectGroupInput(state)
+  for (const key of FIELD_KEYS) delete switches[key]
+  return switches
+}
+
+/** 详情是否有未保存改动：内容字段差异或开关变化都算，与 `collectSaveInput` 用同一套判定。 */
+export function hasFormChanges(state: FormState, row: ConsoleGroupRow | null): boolean {
+  return collectSaveInput(state, row) !== null
+}
+
+/** 详情脏状态时切换列表项弹确认框用的固定文案。 */
+export const FORM_CHANGES_MESSAGE = '详情有未保存的改动，离开将丢失这些改动。'

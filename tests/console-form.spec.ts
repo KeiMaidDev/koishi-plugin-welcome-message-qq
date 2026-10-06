@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  collectGroupChanges,
   collectGroupInput,
   collectKeyboardErrors,
+  collectSaveInput,
   createFormState,
+  hasFormChanges,
+  hasSwitchChanges,
   overrideSummary,
 } from '../src/console-form'
 import type { ConsoleGroupRow } from '../src/console-service'
@@ -119,6 +123,134 @@ describe('collectGroupInput（三态收集）', () => {
     assert.equal(input.enabled, true)
     assert.equal(input.welcomeEnabled, false)
     assert.equal(input.leaveEnabled, true)
+  })
+})
+
+describe('collectGroupChanges（相对来源行的差异收集）', () => {
+  it('与来源行一致时返回 null：null 值、空串覆盖、format 取值都要逐项对上', () => {
+    const row = makeRow({
+      welcomeMessage: '你好',
+      leaveKeyboard: '',
+      messageFormat: 'markdown',
+    })
+    const state = createFormState(row, 'G1')
+    assert.equal(collectGroupChanges(state, row), null)
+
+    // 新建草稿（row = null）在全部继承、开关默认时也不算内容改动
+    const draft = createFormState(null, 'G-new')
+    assert.equal(collectGroupChanges(draft, null), null)
+  })
+
+  it('只带改动过的字段：未动的覆盖保留在数据库里不提交', () => {
+    const row = makeRow({ welcomeMessage: '原文案', closeResponseMessage: '已有回执' })
+    const state = createFormState(row, 'G1')
+    state.editors.leaveMessage = { mode: 'override', value: '新离群文案' }
+
+    assert.deepEqual(collectGroupChanges(state, row), {
+      id: 'G1',
+      enabled: true,
+      leaveMessage: '新离群文案',
+    })
+  })
+
+  it('三态都参与差异：改成继承 = 提交 null 清掉覆盖，改文案 = 提交新值', () => {
+    const row = makeRow({ welcomeMessage: '原文案', messageFormat: 'text' })
+    const state = createFormState(row, 'G1')
+    state.editors.welcomeMessage = { mode: 'inherit', value: '' }
+
+    assert.deepEqual(collectGroupChanges(state, row), {
+      id: 'G1',
+      enabled: true,
+      welcomeMessage: null,
+    })
+
+    state.editors.welcomeMessage = { mode: 'override', value: '新文案' }
+    state.formats.messageFormat = 'markdown'
+    assert.deepEqual(collectGroupChanges(state, row), {
+      id: 'G1',
+      enabled: true,
+      welcomeMessage: '新文案',
+      messageFormat: 'markdown',
+    })
+  })
+
+  it('哨兵行差异成对携带全局开关，enabled 恒为 true', () => {
+    const row = makeRow({ id: '*', sentinel: true, welcomeMessage: '默认欢迎' })
+    const state = createFormState(row, '*')
+    state.editors.welcomeMessage = { mode: 'override', value: '新默认欢迎' }
+
+    assert.deepEqual(collectGroupChanges(state, row), {
+      id: '*',
+      enabled: true,
+      welcomeEnabled: true,
+      leaveEnabled: true,
+      welcomeMessage: '新默认欢迎',
+    })
+  })
+
+  it('开关变化不算内容差异：collectGroupChanges 返回 null 但 hasSwitchChanges 为 true', () => {
+    const row = makeRow()
+    const state = createFormState(row, 'G1')
+    state.editing.enabled = false
+
+    assert.equal(collectGroupChanges(state, row), null)
+    assert.equal(hasSwitchChanges(state, row), true)
+  })
+
+  it('草稿（row = null）任何非继承取值都算改动，继承仍不算', () => {
+    const state = createFormState(null, 'G-new')
+    state.editors.welcomeMessage = { mode: 'override', value: '' }
+
+    assert.deepEqual(collectGroupChanges(state, null), {
+      id: 'G-new',
+      enabled: true,
+      welcomeMessage: '',
+    })
+  })
+})
+
+describe('collectSaveInput / hasFormChanges（保存输入与脏检查）', () => {
+  it('只有内容改动时：内容字段按差异带，开关总是提交', () => {
+    const row = makeRow({ enabled: false, welcomeMessage: '原' })
+    const state = createFormState(row, 'G1')
+    state.editors.leaveMessage = { mode: 'override', value: '新' }
+
+    assert.deepEqual(collectSaveInput(state, row), {
+      id: 'G1',
+      enabled: false,
+      leaveMessage: '新',
+    })
+    assert.equal(hasFormChanges(state, row), true)
+  })
+
+  it('只有开关变化时：只提交开关，不带任何内容字段', () => {
+    const row = makeRow({ welcomeMessage: '已有覆盖' })
+    const state = createFormState(row, 'G1')
+    state.editing.enabled = false
+
+    assert.deepEqual(collectSaveInput(state, row), { id: 'G1', enabled: false })
+  })
+
+  it('哨兵行只动全局开关：enabled 恒为 true，两个全局开关成对提交', () => {
+    const row = makeRow({ id: '*', sentinel: true })
+    const state = createFormState(row, '*')
+    state.editing.leaveEnabled = false
+
+    assert.deepEqual(collectSaveInput(state, row), {
+      id: '*',
+      enabled: true,
+      welcomeEnabled: true,
+      leaveEnabled: false,
+    })
+  })
+
+  it('完全一致时返回 null：hasFormChanges 为 false，hasSwitchChanges 为 false', () => {
+    const row = makeRow({ welcomeMessage: 'x', messageFormat: 'markdown' })
+    const state = createFormState(row, 'G1')
+
+    assert.equal(collectSaveInput(state, row), null)
+    assert.equal(hasFormChanges(state, row), false)
+    assert.equal(hasSwitchChanges(state, row), false)
   })
 })
 
