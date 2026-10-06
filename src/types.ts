@@ -44,6 +44,10 @@ export interface KeyboardConfig {
 
 export type KeyboardConfigSource = KeyboardConfig | string
 
+/**
+ * 旧版配置里的单个群覆盖项。
+ * @deprecated 群级状态已迁移到数据库表 `welcome_message_group`，本字段只用于一次性迁移，将在 0.2.0 移除。
+ */
 export interface GroupConfig {
   guildId: string
   enabled?: boolean
@@ -56,23 +60,106 @@ export interface GroupConfig {
   messageFormat?: MessageFormat
 }
 
+/**
+ * 群级通知状态表的一行。
+ *
+ * `id` 是主键：哨兵行固定为 `*`，其余行是 QQ 群 OpenID。
+ * 可空字段是三态的：没有行 / `null` 表示继承（群行继承哨兵行，哨兵行继承内置常量），
+ * 空字符串表示显式置空（例如不发送正文、不显示按钮），其它值表示覆盖。
+ */
+export interface WelcomeMessageGroup {
+  id: string
+  /** 哨兵行不使用该字段；群行为该群的通知总开关。 */
+  enabled: boolean
+  /** 全局开入群消息开关，仅哨兵行有意义。 */
+  welcomeEnabled?: boolean | null
+  /** 全局开离群消息开关，仅哨兵行有意义。 */
+  leaveEnabled?: boolean | null
+  welcomeMessage?: string | null
+  leaveMessage?: string | null
+  welcomeKeyboard?: string | null
+  leaveKeyboard?: string | null
+  messageFormat?: MessageFormat | null
+  commandResponseFormat?: MessageFormat | null
+  closeResponseMessage?: string | null
+  closeResponseKeyboard?: string | null
+  enableResponseMessage?: string | null
+  enableResponseKeyboard?: string | null
+  updatedAt?: Date | null
+}
+
+/** 群覆盖行里可逐字段设置三态的内容字段。 */
+export const CONTENT_FIELDS = [
+  'welcomeMessage',
+  'leaveMessage',
+  'welcomeKeyboard',
+  'leaveKeyboard',
+  'messageFormat',
+  'commandResponseFormat',
+  'closeResponseMessage',
+  'closeResponseKeyboard',
+  'enableResponseMessage',
+  'enableResponseKeyboard',
+] as const
+
+export type ContentField = typeof CONTENT_FIELDS[number]
+
 export interface Config {
-  welcomeEnabled: boolean
-  welcomeMessage: string
-  leaveEnabled: boolean
-  leaveMessage: string
-  messageFormat: MessageFormat
   scope: NotificationScope
   ignoreBots: boolean
   timeZone: string
   closeCommandAuthority: number
-  commandResponseFormat: MessageFormat
-  closeResponseMessage: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  welcomeEnabled?: boolean
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  welcomeMessage?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  leaveEnabled?: boolean
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  leaveMessage?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  messageFormat?: MessageFormat
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  commandResponseFormat?: MessageFormat
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  closeResponseMessage?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
   closeResponseKeyboard?: string
-  enableResponseMessage: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
+  enableResponseMessage?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
   enableResponseKeyboard?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
   welcomeKeyboard?: string
+  /**
+   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
+   */
   leaveKeyboard?: string
+  /**
+   * @deprecated 群级状态改由数据库保存；本字段只用于群覆盖管理页的一次性迁移，将在 0.2.0 移除。
+   */
   groups: GroupConfig[]
 }
 
@@ -93,6 +180,12 @@ export interface TemplateVariables {
 
 export interface ResolvedNotificationConfig {
   enabled: boolean
+  message: string
+  messageFormat: MessageFormat
+  keyboard?: KeyboardConfigSource
+}
+
+export interface ResolvedResponseConfig {
   message: string
   messageFormat: MessageFormat
   keyboard?: KeyboardConfigSource

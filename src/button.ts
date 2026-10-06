@@ -1,4 +1,5 @@
 import { Schema } from 'koishi'
+import { EMPTY_KEYBOARD_JSON, isRecord } from './keyboard'
 import type {
   KeyboardConfig,
   KeyboardConfigSource,
@@ -7,8 +8,7 @@ import type {
 } from './types'
 import { findUnknownPlaceholders, renderActionTemplate } from './template'
 
-export const EMPTY_KEYBOARD_JSON = JSON.stringify({ rows: [] }, null, 2)
-
+export { EMPTY_KEYBOARD_JSON, validateKeyboardJson } from './keyboard'
 
 export const keyboardSchema = Schema.string()
   .role('textarea', { rows: [12, 12] })
@@ -19,10 +19,6 @@ export const keyboardSchema = Schema.string()
 export interface NormalizeKeyboardOptions {
   debug?: (message: string) => void
   warn?: (message: string) => void
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function parseKeyboardConfig(

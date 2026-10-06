@@ -2,6 +2,7 @@ lib
 dist
 external
 tests
+docs
 
 node_modules
 npm-debug.log
