@@ -501,12 +501,12 @@ export default defineComponent({
 
     const renderListItem = (row: api.ConsoleGroupRow) => {
       const selected = row.id === selectedId.value
-      // 全局默认行是继承的取值来源，不响应点击切换；群行正常进入选中确认流程
-      const rowClick = row.sentinel ? {} : { onClick: () => { void switchTo(row) } }
+      // 哨兵行（全局默认）也可点击：详情的哨兵分支是全局默认内容的唯一编辑入口，
+      // 且 switchTo → loadDetail 是纯客户端切换，不产生任何写请求
       return h('div', {
         key: row.id,
-        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #ebeef5;background:${selected ? '#ecf5ff' : 'transparent'};cursor:${row.sentinel ? 'default' : 'pointer'}`,
-        ...rowClick,
+        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #ebeef5;cursor:pointer;background:${selected ? '#ecf5ff' : 'transparent'}`,
+        onClick: () => { void switchTo(row) },
       }, [
         h('div', { style: 'flex:1;min-width:0' }, [
           h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
@@ -536,7 +536,7 @@ export default defineComponent({
     const renderList = () => {
       const rows = list.value?.rows ?? []
       const total = list.value?.total ?? 0
-      return h('div', { key: 'wm-group-list', style: 'display:flex;flex-direction:column;height:100%' }, [
+      return h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
         h('div', { style: 'padding:8px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #ebeef5' }, [
           h(el('el-input'), {
             modelValue: searchInput.value,
@@ -550,6 +550,7 @@ export default defineComponent({
           }),
           h(el('el-button'), { size: 'small', onClick: applySearch }, () => '搜索'),
         ]),
+        // 列表体：行容器用原生 overflow 滚动（外层 aside 由框架管理，不另套 el-scrollbar）
         rows.length
           ? h('div', { style: 'flex:1;overflow-y:auto' }, rows.map(renderListItem))
           : h('div', { style: 'padding:24px 12px;text-align:center;color:#909399;font-size:13px' }, loading.value ? '加载中…' : '数据库里还没有群覆盖记录'),
@@ -567,8 +568,12 @@ export default defineComponent({
       ])
     }
 
-    /** 详情列的内部滚动：el-scrollbar 需要 >0 的可解析高度，内容列收敛到 layout-main 的 100%。 */
-    const renderDetailScroll = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', { style: 'padding:0 16px 16px' }, [
+    /**
+     * 详情列：内部滚动 + 编辑态/空态分支。
+     * k-layout 的 layout-main 是 overflow:hidden 的弹性容器，高度只能从 100% 收敛；
+     * el-scrollbar 在高度不可解析时不滚动，故以 height:100% 定高后由它接管滚动。
+     */
+    const renderDetailColumn = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', { style: 'padding:0 16px 16px' }, [
       editing.value
         ? renderDetail()
         : h('div', {
@@ -577,7 +582,7 @@ export default defineComponent({
     ]))
 
     return () => {
-      return h(el('k-layout'), { key: 'wm-panel-root' }, {
+      return h(el('k-layout'), {
         // 群覆盖列表：k-layout 原生左侧栏（框架样式），窄窗口下由框架切换为抽屉
         left: () => renderList(),
         default: () => h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
@@ -591,8 +596,8 @@ export default defineComponent({
             h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate, loading: checking.value }, () => '新增群覆盖'),
             h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
           ]),
-          // 详情列：滚动发生在内容区内部（与左侧栏同走 el-scrollbar）
-          renderDetailScroll(),
+          // 详情列：编辑态/空态分支 + 内部滚动
+          renderDetailColumn(),
         ]),
       })
     }
