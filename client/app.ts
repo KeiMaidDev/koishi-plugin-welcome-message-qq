@@ -25,7 +25,10 @@ const el = (name: string) => resolveComponent(name)
 /** 新增查重候选页大小：取服务端 store 的 MAX_PAGE_SIZE 上限，保证目标行不会被挤出单页。 */
 const DEDUPE_PAGE_SIZE = 200
 
-/** 控制台页名：侧栏入口与页内标题共用同一字面量。 */
+/**
+ * 控制台页名：侧栏入口与 ctx.page 的 name 共用同一字面量；
+ * 页头标题由 k-layout 外壳按活动元数据（同一个 name）原生显示。
+ */
 export const PANEL_NAME = '入群欢迎管理'
 
 function errorText(error: unknown): string {
@@ -498,10 +501,12 @@ export default defineComponent({
 
     const renderListItem = (row: api.ConsoleGroupRow) => {
       const selected = row.id === selectedId.value
+      // 全局默认行是继承的取值来源，不响应点击切换；群行正常进入选中确认流程
+      const rowClick = row.sentinel ? {} : { onClick: () => { void switchTo(row) } }
       return h('div', {
         key: row.id,
-        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #ebeef5;cursor:pointer;background:${selected ? '#ecf5ff' : 'transparent'}`,
-        onClick: () => { void switchTo(row) },
+        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #ebeef5;background:${selected ? '#ecf5ff' : 'transparent'};cursor:${row.sentinel ? 'default' : 'pointer'}`,
+        ...rowClick,
       }, [
         h('div', { style: 'flex:1;min-width:0' }, [
           h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
@@ -531,7 +536,7 @@ export default defineComponent({
     const renderList = () => {
       const rows = list.value?.rows ?? []
       const total = list.value?.total ?? 0
-      return h('div', { style: 'width:360px;flex-shrink:0;border:1px solid #ebeef5;border-radius:4px;background:#fff;align-self:stretch' }, [
+      return h('div', { key: 'wm-group-list', style: 'display:flex;flex-direction:column;height:100%' }, [
         h('div', { style: 'padding:8px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #ebeef5' }, [
           h(el('el-input'), {
             modelValue: searchInput.value,
@@ -546,7 +551,7 @@ export default defineComponent({
           h(el('el-button'), { size: 'small', onClick: applySearch }, () => '搜索'),
         ]),
         rows.length
-          ? h('div', {}, rows.map(renderListItem))
+          ? h('div', { style: 'flex:1;overflow-y:auto' }, rows.map(renderListItem))
           : h('div', { style: 'padding:24px 12px;text-align:center;color:#909399;font-size:13px' }, loading.value ? '加载中…' : '数据库里还没有群覆盖记录'),
         total > query.pageSize
           ? h(el('el-pagination'), {
@@ -562,30 +567,34 @@ export default defineComponent({
       ])
     }
 
+    /** 详情列的内部滚动：el-scrollbar 需要 >0 的可解析高度，内容列收敛到 layout-main 的 100%。 */
+    const renderDetailScroll = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', { style: 'padding:0 16px 16px' }, [
+      editing.value
+        ? renderDetail()
+        : h('div', {
+            style: 'border:1px dashed #dcdfe6;border-radius:4px;padding:40px 12px;text-align:center;color:#909399;font-size:13px',
+          }, '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
+    ]))
+
     return () => {
-      return h('div', { style: 'padding:16px' }, [
-        h('div', { style: 'font-size:16px;font-weight:600;margin-bottom:4px' }, PANEL_NAME),
-        h('div', { style: 'font-size:12px;color:#909399;margin-bottom:12px' }, [
-          '本页同时管理入群欢迎、离群通知与开关回执三类内容。群级状态保存在数据库表 welcome_message_group 中；插件不会改写 koishi.yml。',
-          '内容字段可以逐项选择「继承全局」或「覆盖」，选「覆盖」后留空即显式置空。',
-        ]),
-        h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' }, [
-          h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
-          h('div', { style: 'flex:1' }),
-          h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate, loading: checking.value }, () => '新增群覆盖'),
-          h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
-        ]),
-        h('div', { style: 'display:flex;gap:12px;align-items:flex-start' }, [
-          renderList(),
-          h('div', { style: 'flex:1;min-width:0' }, [
-            editing.value
-              ? renderDetail()
-              : h('div', {
-                  style: 'border:1px dashed #dcdfe6;border-radius:4px;padding:40px 12px;text-align:center;color:#909399;font-size:13px',
-                }, '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
+      return h(el('k-layout'), { key: 'wm-panel-root' }, {
+        // 群覆盖列表：k-layout 原生左侧栏（框架样式），窄窗口下由框架切换为抽屉
+        left: () => renderList(),
+        default: () => h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
+          // 顶部说明：单行灰字
+          h('div', { style: 'font-size:12px;color:#909399;padding:10px 16px 0' },
+            '本页管理入群欢迎、离群通知与开关回执：群级状态存于数据库，内容字段可继承全局或逐项覆盖，不改写 koishi.yml。'),
+          // 全局操作工具行：保持在内容区顶部
+          h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px' }, [
+            h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
+            h('div', { style: 'flex:1' }),
+            h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate, loading: checking.value }, () => '新增群覆盖'),
+            h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
           ]),
+          // 详情列：滚动发生在内容区内部（与左侧栏同走 el-scrollbar）
+          renderDetailScroll(),
         ]),
-      ])
+      })
     }
   },
 })
