@@ -6,11 +6,19 @@ import {
   collectKeyboardErrors,
   collectSaveInput,
   createFormState,
+  FIELD_GROUPS,
   hasFormChanges,
   hasSwitchChanges,
-  overrideSummary,
+  overrideChips,
+  resolveInheritedValue,
 } from '../src/console-form'
 import type { ConsoleGroupRow } from '../src/console-service'
+import {
+  DEFAULT_LEAVE_KEYBOARD,
+  DEFAULT_LEAVE_MESSAGE,
+  DEFAULT_WELCOME_KEYBOARD,
+  DEFAULT_WELCOME_MESSAGE,
+} from '../src/defaults'
 
 /** 一条空白的群覆盖行：所有内容字段都是继承。 */
 function makeRow(overrides: Partial<ConsoleGroupRow> = {}): ConsoleGroupRow {
@@ -254,21 +262,90 @@ describe('collectSaveInput / hasFormChanges（保存输入与脏检查）', () =
   })
 })
 
-describe('overrideSummary（覆盖字段摘要）', () => {
-  it('没有覆盖时哨兵行与群行文案不同', () => {
-    assert.equal(overrideSummary(makeRow({ id: '*', sentinel: true })), '全部使用内置默认')
-    assert.equal(overrideSummary(makeRow()), '全部继承全局')
+// overrideSummary 已由 overrideChips 取代（issue #6：列表项逐字段 chips）；没有对应测试。
+
+describe('overrideChips（列表项覆盖字段 chips）', () => {
+  it('没有覆盖时返回继承提示 chip（哨兵行与群行文案不同）', () => {
+    assert.deepEqual(overrideChips(makeRow({ id: '*', sentinel: true })), [{ text: '内置默认' }])
+    assert.deepEqual(overrideChips(makeRow()), [{ text: '全部继承全局' }])
   })
 
-  it('数出覆盖的字段数，空串（显式置空）也算覆盖', () => {
-    assert.equal(
-      overrideSummary(makeRow({ id: '*', sentinel: true, welcomeMessage: 'x', messageFormat: 'text' })),
-      '2 项自定义',
+  it('按分组给出覆盖字段的 chips，顺序跟随分组定义，空串覆盖也显示', () => {
+    const row = makeRow({ leaveKeyboard: '', welcomeMessage: '你好' })
+    assert.deepEqual(overrideChips(row), [
+      { text: '入群文案', fieldKey: 'welcomeMessage' },
+      { text: '离群按钮', fieldKey: 'leaveKeyboard' },
+    ])
+  })
+
+  it('格式字段覆盖时 chips 文案带格式取值', () => {
+    assert.deepEqual(
+      overrideChips(makeRow({ messageFormat: 'markdown' })),
+      [{ text: '消息格式 · Markdown', fieldKey: 'messageFormat' }],
     )
-    assert.equal(
-      overrideSummary(makeRow({ welcomeKeyboard: '', leaveMessage: 'y', closeResponseKeyboard: 'z' })),
-      '3 个字段覆盖',
+    assert.deepEqual(
+      overrideChips(makeRow({ commandResponseFormat: 'text' })),
+      [{ text: '回执格式 · 普通消息', fieldKey: 'commandResponseFormat' }],
     )
+  })
+})
+
+describe('resolveInheritedValue（继承值解析）', () => {
+  const sentinel = makeRow({ id: '*', sentinel: true })
+  const global = makeRow({ id: '*', sentinel: true, welcomeMessage: '全局欢迎', messageFormat: 'markdown' })
+
+  it('群行继承：优先全局默认行的值，没有时兜底内置默认值（与运行时继承链一致）', () => {
+    assert.equal(resolveInheritedValue(global, 'welcomeMessage', false), '全局欢迎')
+    assert.equal(resolveInheritedValue(global, 'leaveMessage', false), '{at} 已离开群聊。')
+    assert.equal(resolveInheritedValue(null, 'welcomeMessage', false), '欢迎 {at} 加入群聊！')
+  })
+
+  it('格式与开关字段没有内置默认文本：placeholder 为 undefined', () => {
+    assert.equal(resolveInheritedValue(null, 'messageFormat', false), undefined)
+    assert.equal(resolveInheritedValue(null, 'welcomeEnabled', false), undefined)
+  })
+
+  it('行值是字符串就透传（含格式字段）；开关等非字符串值不给 placeholder', () => {
+    assert.equal(resolveInheritedValue(global, 'messageFormat', false), 'markdown')
+    assert.equal(resolveInheritedValue(global, 'welcomeEnabled', false), undefined)
+  })
+
+  it('哨兵行继承：直接取内置默认值', () => {
+    assert.equal(resolveInheritedValue(sentinel, 'welcomeMessage', true), '欢迎 {at} 加入群聊！')
+    assert.equal(resolveInheritedValue(sentinel, 'welcomeKeyboard', true), DEFAULT_WELCOME_KEYBOARD)
+    assert.equal(resolveInheritedValue(sentinel, 'leaveMessage', true), '{at} 已离开群聊。')
+    assert.equal(resolveInheritedValue(sentinel, 'messageFormat', true), undefined)
+    assert.equal(resolveInheritedValue(sentinel, 'welcomeEnabled', true), undefined)
+  })
+})
+
+describe('FIELD_GROUPS（详情四分组）', () => {
+  it('按「通知开关 / 入群 / 离群 / 开关回执」分组，内容字段无遗漏、不重复', () => {
+    const groups = FIELD_GROUPS.map(group => group.title)
+    assert.deepEqual(groups, ['通知开关', '入群', '离群', '开关回执'])
+
+    // 分组覆盖全部内容键：开关不算内容键，messageFormat 归入「入群」组
+    const grouped = FIELD_GROUPS
+      .flatMap(group => group.fields.filter(field => field.kind !== 'switch'))
+      .map(field => field.key)
+    const all = [...new Set(grouped)].sort()
+    const expected = [
+      'closeResponseKeyboard', 'closeResponseMessage',
+      'commandResponseFormat',
+      'enableResponseKeyboard', 'enableResponseMessage',
+      'leaveKeyboard', 'leaveMessage',
+      'messageFormat',
+      'welcomeKeyboard', 'welcomeMessage',
+    ].sort()
+    assert.deepEqual(all, expected)
+
+    // 分组内的字段顺序即渲染顺序：同一事件的文案在按钮前
+    assert.deepEqual(FIELD_GROUPS[1].fields.map(field => field.key), ['welcomeMessage', 'welcomeKeyboard', 'messageFormat'])
+    assert.deepEqual(FIELD_GROUPS[2].fields.map(field => field.key), ['leaveMessage', 'leaveKeyboard'])
+    assert.deepEqual(FIELD_GROUPS[3].fields.map(field => field.key), [
+      'commandResponseFormat', 'closeResponseMessage', 'closeResponseKeyboard',
+      'enableResponseMessage', 'enableResponseKeyboard',
+    ])
   })
 })
 

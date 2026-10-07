@@ -1,4 +1,14 @@
 import type { ConsoleGroupInput, ConsoleGroupRow } from './console-service'
+import {
+  DEFAULT_CLOSE_RESPONSE_KEYBOARD,
+  DEFAULT_CLOSE_RESPONSE_MESSAGE,
+  DEFAULT_ENABLE_RESPONSE_KEYBOARD,
+  DEFAULT_ENABLE_RESPONSE_MESSAGE,
+  DEFAULT_LEAVE_KEYBOARD,
+  DEFAULT_LEAVE_MESSAGE,
+  DEFAULT_WELCOME_KEYBOARD,
+  DEFAULT_WELCOME_MESSAGE,
+} from './defaults'
 import { validateKeyboardJson } from './keyboard'
 
 /**
@@ -25,6 +35,72 @@ export const TEXT_FIELDS: TextFieldMeta[] = [
   { key: 'closeResponseKeyboard', label: '关闭回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
   { key: 'enableResponseMessage', label: '开启回执文案', rows: 3 },
   { key: 'enableResponseKeyboard', label: '开启回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
+]
+
+/** 详情区分组里的字段元数据：开关、格式或文本内容字段。 */
+export type DetailFieldMeta =
+  | { kind: 'switch'; key: 'welcomeEnabled' | 'leaveEnabled'; label: string }
+  | { kind: 'format'; key: 'messageFormat' | 'commandResponseFormat'; label: string }
+  | { kind: 'text' } & TextFieldMeta
+
+export interface FieldGroup {
+  /** 折叠面板标题。 */
+  title: string
+  /**
+   * 分组特性标记：'switches' 表示开关分组（群行渲染总开关，哨兵行渲染全局开关），
+   * 缺省为内容字段分组。
+   */
+  kind?: 'switches'
+  /** 该分组里的字段，按详情渲染顺序排列。 */
+  fields: DetailFieldMeta[]
+}
+
+/** 详情分组的开关标题；开关字段只出现在哨兵行详情里。 */
+const DETAIL_SWITCHES: Record<'welcomeEnabled' | 'leaveEnabled', string> = {
+  welcomeEnabled: '全局入群通知',
+  leaveEnabled: '全局离群通知',
+}
+
+function switchField(key: 'welcomeEnabled' | 'leaveEnabled'): DetailFieldMeta {
+  return { kind: 'switch', key, label: DETAIL_SWITCHES[key] }
+}
+
+function textField(field: TextFieldMeta): DetailFieldMeta {
+  return { kind: 'text', ...field }
+}
+
+/**
+ * 详情区四个可折叠分组（issue #6）：通知开关 / 入群 / 离群 / 开关回执。
+ * 分组内字段顺序即详情渲染顺序；通知开关分组在群行详情里整体隐藏（群行只有一个总开关）。
+ */
+export const FIELD_GROUPS: FieldGroup[] = [
+  { title: '通知开关', kind: 'switches', fields: [switchField('welcomeEnabled'), switchField('leaveEnabled')] },
+  {
+    title: '入群',
+    fields: [
+      textField(TEXT_FIELDS[0]),
+      textField(TEXT_FIELDS[2]),
+      // messageFormat 同时作用于入群与离群消息，标签自带全称；归入首个相关分组
+      { kind: 'format', key: 'messageFormat', label: '入群/离群消息格式' },
+    ],
+  },
+  {
+    title: '离群',
+    fields: [
+      textField(TEXT_FIELDS[1]),
+      textField(TEXT_FIELDS[3]),
+    ],
+  },
+  {
+    title: '开关回执',
+    fields: [
+      { kind: 'format', key: 'commandResponseFormat', label: '回执格式' },
+      textField(TEXT_FIELDS[4]),
+      textField(TEXT_FIELDS[5]),
+      textField(TEXT_FIELDS[6]),
+      textField(TEXT_FIELDS[7]),
+    ],
+  },
 ]
 
 export const FORMAT_FIELDS = [
@@ -61,6 +137,36 @@ export interface FormState {
 /** 按字段键读行值；row 为 null（新建草稿）或字段缺失时返回 null。 */
 function fieldValue(row: ConsoleGroupRow | null, key: string): unknown {
   return row ? (row as unknown as Record<string, unknown>)[key] : null
+}
+
+/** 内容字段的内置默认值；格式与开关字段没有内置默认（运行时兜底取值），映射为空。 */
+const BUILTIN_DEFAULTS: Record<string, string> = {
+  welcomeMessage: DEFAULT_WELCOME_MESSAGE,
+  leaveMessage: DEFAULT_LEAVE_MESSAGE,
+  welcomeKeyboard: DEFAULT_WELCOME_KEYBOARD,
+  leaveKeyboard: DEFAULT_LEAVE_KEYBOARD,
+  closeResponseMessage: DEFAULT_CLOSE_RESPONSE_MESSAGE,
+  closeResponseKeyboard: DEFAULT_CLOSE_RESPONSE_KEYBOARD,
+  enableResponseMessage: DEFAULT_ENABLE_RESPONSE_MESSAGE,
+  enableResponseKeyboard: DEFAULT_ENABLE_RESPONSE_KEYBOARD,
+}
+
+/**
+ * 解析内容字段选「继承」时实际生效的值，用作输入框 placeholder（issue #6）。
+ *
+ * 与运行时继承链一致（群覆盖 → 全局默认行 → 内置默认，见 `src/store.ts` 的 pickString）：
+ * - 编辑群行（`isSentinel = false`）：先取全局默认行（`row`）的值，没有时兜底内置默认值；
+ * - 编辑哨兵行（`isSentinel = true`）：继承指向内置默认值。
+ * 格式与开关字段没有内置默认文本，为 undefined，placeholder 显示占位文案。
+ */
+export function resolveInheritedValue(
+  row: ConsoleGroupRow | null | undefined,
+  key: string,
+  isSentinel: boolean,
+): string | undefined {
+  if (isSentinel) return BUILTIN_DEFAULTS[key]
+  if (row && typeof fieldValue(row, key) === 'string') return fieldValue(row, key) as string
+  return BUILTIN_DEFAULTS[key]
 }
 
 /**
@@ -131,13 +237,47 @@ export function collectGroupInput(state: FormState): ConsoleGroupInput {
   return input
 }
 
-/** 列表页的覆盖字段摘要：数出非空（覆盖）的内容字段数，区分哨兵行与群行文案。 */
-export function overrideSummary(row: ConsoleGroupRow): string {
-  const count = [...TEXT_FIELDS.map(field => field.key), ...FORMAT_FIELDS.map(field => field.key)]
-    .filter(key => fieldValue(row, key) !== null)
-    .length
-  if (!count) return row.sentinel ? '全部使用内置默认' : '全部继承全局'
-  return row.sentinel ? `${count} 项自定义` : `${count} 个字段覆盖`
+/** 列表项的一个覆盖字段 chip。 */
+export interface OverrideChip {
+  /** chip 显示文案。 */
+  text: string
+  /** 对应的字段键，用作渲染层的 key；继承提示 chip 没有对应字段。 */
+  fieldKey?: string
+}
+
+const FORMAT_CHIP_TEXT: Record<'messageFormat' | 'commandResponseFormat', string> = {
+  messageFormat: '消息格式',
+  commandResponseFormat: '回执格式',
+}
+
+const FORMAT_CHIP_VALUE: Record<string, string> = { text: '普通消息', markdown: 'Markdown' }
+
+/** 格式字段的 chip 文案；行里的非法取值原样显示，避免 chips 静默丢字段。 */
+function formatChip(field: 'messageFormat' | 'commandResponseFormat', value: string): OverrideChip {
+  return { text: `${FORMAT_CHIP_TEXT[field]} · ${FORMAT_CHIP_VALUE[value] ?? value}`, fieldKey: field }
+}
+
+/**
+ * 左列列表项的覆盖字段 chips（issue #6）：逐字段检查行值，非空即给一个 chip
+ * （空串显式置空也算覆盖）；格式字段 chip 带格式取值。按 TEXT_FIELDS → FORMAT_FIELDS
+ * 的定义顺序输出，与详情分组顺序一致；按钮字段标签本身已含「按钮」。
+ * 没有任何覆盖时给一条继承提示，哨兵行与群行文案不同。
+ */
+export function overrideChips(row: ConsoleGroupRow): OverrideChip[] {
+  const chips: OverrideChip[] = []
+  for (const field of TEXT_FIELDS) {
+    if (fieldValue(row, field.key) !== null) {
+      chips.push({ text: field.label, fieldKey: field.key })
+    }
+  }
+  for (const field of FORMAT_FIELDS) {
+    const value = fieldValue(row, field.key)
+    if (typeof value === 'string') {
+      chips.push(formatChip(field.key as 'messageFormat' | 'commandResponseFormat', value))
+    }
+  }
+  if (!chips.length) return [{ text: row.sentinel ? '内置默认' : '全部继承全局' }]
+  return chips
 }
 
 /** 内容字段键集合：与 `ConsoleGroupRow` 的内容字段一一对应，收集与摘共用。 */

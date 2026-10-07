@@ -1,15 +1,17 @@
 import { message, messageBox } from '@koishijs/client'
-import { defineComponent, h, onMounted, reactive, ref, resolveComponent } from 'vue'
+import { defineComponent, h, nextTick, onMounted, reactive, ref, resolveComponent } from 'vue'
 import {
   collectKeyboardErrors,
   collectSaveInput,
   createFormState,
+  FIELD_GROUPS,
   FIELD_KEYS,
   FORM_CHANGES_MESSAGE,
-  FORMAT_FIELDS,
   hasFormChanges,
   TEXT_FIELDS,
-  overrideSummary,
+  overrideChips,
+  resolveInheritedValue,
+  type DetailFieldMeta,
   type EditorState,
   type FieldEditor,
   type FormatMode,
@@ -57,11 +59,35 @@ export default defineComponent({
     const editors = reactive<Record<string, FieldEditor>>({})
     const formats = reactive<Record<string, FormatMode>>({})
     const errors = reactive<Record<string, string>>({})
+    /** 四个折叠分组默认全部展开。 */
+    const expandedGroups = ref<string[]>(FIELD_GROUPS.map(group => group.title))
+    /**
+     * 全局默认行缓存，作群行继承 placeholder 的取值来源。
+     * 列表是分页 + 搜索的，哨兵行可能不在当前页，这里单独拉取并缓存。
+     */
+    let globalRow: api.ConsoleGroupRow | null = null
+
+    /**
+     * 拉取全局默认行作群行继承 placeholder 的取值来源，并缓存。
+     * 列表是分页 + 搜索的，哨兵行不一定在当前页；用 `*` 作搜索词可以
+     * 精确命中主键为 `*` 的哨兵行，pageSize:1 保证一次只取这一行。
+     */
+    async function fetchGlobalRow(): Promise<api.ConsoleGroupRow | null> {
+      try {
+        const result = await api.fetchGroups({ search: '*', page: 1, pageSize: 1 })
+        globalRow = result.rows.find(row => row.sentinel) ?? null
+      } catch {
+        // 拉取失败不影响编辑主流程，placeholder 用缓存或内置默认值兜底
+      }
+      return globalRow
+    }
 
     async function refresh() {
       loading.value = true
       try {
         list.value = await api.fetchGroups({ ...query })
+        // 保存/刷新后同步全局默认行缓存（列表第一页通常已带哨兵行，避免多余请求）
+        globalRow = list.value?.rows.find(row => row.sentinel) ?? globalRow
       } catch (error) {
         message.error('加载群覆盖列表失败：' + errorText(error))
         list.value = null
@@ -159,10 +185,16 @@ export default defineComponent({
       return !Object.keys(found).length
     }
 
-    /** 保存被键盘校验拦下时，滚动并聚焦到第一个错误字段。 */
-    function focusFirstError() {
+    /** 保存被键盘校验拦下时，展开所在分组、滚动并聚焦到第一个错误字段。 */
+    async function focusFirstError() {
       const field = TEXT_FIELDS.find(item => item.keyboard && errors[item.key])
       if (!field) return
+      // 错误字段可能藏在折叠分组里：先把对应分组展开再定位
+      const group = FIELD_GROUPS.find(item => item.fields.some(item2 => 'key' in item2 && item2.key === field.key))
+      if (group && !expandedGroups.value.includes(group.title)) {
+        expandedGroups.value = [...expandedGroups.value, group.title]
+      }
+      await nextTick()
       const anchor = document.getElementById(`wm-field-${field.key}`)
       anchor?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       anchor?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
@@ -173,7 +205,7 @@ export default defineComponent({
       if (!state) return
       if (!validateKeyboardFields()) {
         message.error('键盘 JSON 有格式错误，请修正后再保存。')
-        focusFirstError()
+        void focusFirstError()
         return
       }
       // 只提交与来源行有差异的字段；开关总是提交，该群其它已有覆盖不受影响
@@ -186,6 +218,8 @@ export default defineComponent({
       try {
         await api.updateGroup(input)
         message.success(state.editing.sentinel ? '全局默认已保存' : '群覆盖已保存')
+        // 哨兵行是群行 placeholder 的继承来源，保存后立即刷新缓存
+        if (state.editing.sentinel) void fetchGlobalRow()
         await refresh()
         const row = list.value?.rows.find(item => item.id === state.editing.id)
         if (row) {
@@ -281,15 +315,28 @@ export default defineComponent({
       void refresh()
     }
 
-    onMounted(() => { void refresh() })
+    onMounted(() => {
+      void refresh()
+      void fetchGlobalRow()
+    })
 
-    const label = (text: string) => h('span', { style: 'font-size:13px;font-weight:600;min-width:130px' }, text)
+    const label = (text: string, minWidth?: string) =>
+      h('span', { style: `font-size:13px;font-weight:600;min-width:${minWidth ?? '130px'}` }, text)
+
+    /**
+     * 继承模式下输入框的 placeholder，显示真正生效的值（与运行时继承链一致）：
+     * 群行 = 全局默认行的值，全局也没设时兜底内置默认值；哨兵行 = 内置默认值。
+     */
+    const inheritedPlaceholder = (field: TextFieldMeta): string | undefined =>
+      editing.value?.sentinel
+        ? resolveInheritedValue(null, field.key, true)
+        : resolveInheritedValue(globalRow, field.key, false)
 
     const renderTextField = (field: TextFieldMeta) => {
       const editor = editors[field.key]
       return h('div', { key: field.key, id: `wm-field-${field.key}`, style: 'margin-bottom:10px' }, [
         h('div', { style: 'display:flex;align-items:center;gap:8px' }, [
-          label(field.label),
+          label(field.label, '90px'),
           h(el('el-select'), {
             modelValue: editor.mode,
             'onUpdate:modelValue': (value: 'inherit' | 'override') => {
@@ -315,7 +362,14 @@ export default defineComponent({
               rows: field.rows,
               placeholder: field.keyboard ? '{ "rows": [] }' : '',
             })
-          : null,
+          // 继承模式：禁用的空输入框，用继承来源值作 placeholder，让用户看得到继承源头
+          : h(el('el-input'), {
+              modelValue: '',
+              type: 'textarea',
+              rows: field.rows,
+              disabled: true,
+              placeholder: inheritedPlaceholder(field),
+            }),
         errors[field.key]
           ? h('div', { style: 'font-size:12px;color:#f56c6c;margin-top:4px' }, errors[field.key])
           : null,
@@ -326,7 +380,7 @@ export default defineComponent({
       key: field.key,
       style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px',
     }, [
-      label(field.label),
+      label(field.label, '90px'),
       h(el('el-select'), {
         modelValue: formats[field.key],
         'onUpdate:modelValue': (value: FormatMode) => { formats[field.key] = value },
@@ -345,6 +399,17 @@ export default defineComponent({
         h(el('el-switch'), { modelValue, 'onUpdate:modelValue': onChange }),
       ])
 
+    /** 按字段元数据渲染单个字段行：开关 / 格式下拉 / 三态文本。 */
+    const renderDetailField = (field: DetailFieldMeta) => {
+      if (field.kind === 'switch') {
+        return renderSwitch(field.label, editing.value?.[field.key] ?? true, value => {
+          if (editing.value) editing.value[field.key] = value
+        })
+      }
+      if (field.kind === 'format') return renderFormatField(field)
+      return renderTextField(field)
+    }
+
     const renderDetail = () => {
       const current = editing.value
       if (!current) return null
@@ -356,18 +421,21 @@ export default defineComponent({
           editingRow.value ? null : h(el('el-tag'), { type: 'warning', size: 'small' }, () => '未保存草稿'),
           dirty ? h(el('el-tag'), { size: 'small' }, () => '有未保存改动') : null,
         ]),
-        current.sentinel
-          ? h('div', { style: 'margin-bottom:10px' }, [
-              h('div', { style: 'font-size:12px;color:#909399;margin-bottom:6px' }, '全局默认行本身就是所有群的兜底内容，没有「总开关」；下面两项控制是否发送这一类通知。'),
-              renderSwitch('全局入群通知', current.welcomeEnabled, value => { current.welcomeEnabled = value }),
-              renderSwitch('全局离群通知', current.leaveEnabled, value => { current.leaveEnabled = value }),
-            ])
-          : h('div', { style: 'margin-bottom:10px' }, [
-              renderSwitch('本群通知开关', current.enabled, value => { current.enabled = value }),
-            ]),
-        h('div', { style: 'border-top:1px solid #ebeef5;margin:10px 0' }),
-        ...TEXT_FIELDS.map(renderTextField),
-        ...FORMAT_FIELDS.map(renderFormatField),
+        // 四个可折叠分组：通知开关 / 入群 / 离群 / 开关回执，默认全部展开
+        h(el('el-collapse'), {
+          modelValue: expandedGroups.value,
+          'onUpdate:modelValue': (value: string[]) => { expandedGroups.value = value },
+        }, () => FIELD_GROUPS.map(group => h(el('el-collapse-item'), {
+          key: group.title,
+          title: group.title,
+          name: group.title,
+        }, () => {
+          // 群行只有一个总开关：开关分组显示总开关，哨兵行显示全局入群 / 离群开关
+          if (group.kind === 'switches' && !current.sentinel) {
+            return [renderSwitch('本群通知开关', current.enabled, value => { current.enabled = value })]
+          }
+          return group.fields.map(renderDetailField)
+        }))),
         h('div', { style: 'border-top:1px solid #ebeef5;margin:10px 0' }),
         h('div', { style: 'display:flex;align-items:center;gap:8px' }, [
           editingRow.value && !current.sentinel
@@ -405,10 +473,15 @@ export default defineComponent({
           ]),
           h('div', {
             style: 'font-size:12px;color:#909399;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
-          }, [
-            overrideSummary(row),
-            row.updatedAt ? ` · 更新于 ${formatTime(row.updatedAt)}` : '',
-          ]),
+          }, row.updatedAt ? `更新于 ${formatTime(row.updatedAt)}` : undefined),
+          // 覆盖字段 chips：无覆盖时显示继承提示（内置默认 / 全部继承全局）
+          h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px' },
+            overrideChips(row).map(chip => h(el('el-tag'), {
+              key: chip.fieldKey || chip.text,
+              size: 'small',
+              type: 'info',
+              effect: 'plain',
+            }, () => chip.text))),
         ]),
         row.sentinel ? null : h(el('el-switch'), {
           modelValue: row.enabled,
