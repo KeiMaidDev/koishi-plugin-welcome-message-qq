@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  applySavedInput,
   collectGroupChanges,
   collectGroupInput,
   collectKeyboardErrors,
   collectSaveInput,
   createFormState,
   FIELD_GROUPS,
+  findExactRow,
   hasFormChanges,
   hasSwitchChanges,
   overrideChips,
@@ -259,6 +261,67 @@ describe('collectSaveInput / hasFormChanges（保存输入与脏检查）', () =
     assert.equal(collectSaveInput(state, row), null)
     assert.equal(hasFormChanges(state, row), false)
     assert.equal(hasSwitchChanges(state, row), false)
+  })
+
+  it('草稿（row = null）首存：全继承时开关变化也带 id 提交，创建新行（issue #7）', () => {
+    const state = createFormState(null, 'G-new')
+    state.editing.enabled = false
+
+    assert.deepEqual(collectSaveInput(state, null), { id: 'G-new', enabled: false })
+    assert.equal(hasFormChanges(state, null), true)
+  })
+
+  it('草稿首存成基线：以提交值为来源行合成后，collectSaveInput 返回 null（脏检测归零）', () => {
+    const state = createFormState(null, 'G-new')
+    state.editors.welcomeMessage = { mode: 'override', value: '你好' }
+    const input = collectSaveInput(state, null)!
+    assert.deepEqual(input, { id: 'G-new', enabled: true, welcomeMessage: '你好' })
+
+    // 与 app.ts 保存路径一致：用 applySavedInput 以提交值为基准合成来源行
+    const row = applySavedInput(input, { id: 'G-new', sentinel: false })
+    assert.equal(row.welcomeMessage, '你好')
+    assert.equal(row.enabled, true)
+    assert.equal(collectSaveInput(createFormState(row, row.id), row), null)
+  })
+
+  it('applySavedInput：哨兵行兜底全局开关为提交值，群行开关沿用提交值', () => {
+    const sentinelRow = applySavedInput(
+      { id: '*', enabled: true, welcomeEnabled: false, leaveEnabled: null },
+      { id: '*', sentinel: true },
+    )
+    assert.equal(sentinelRow.welcomeEnabled, false)
+    assert.equal(sentinelRow.leaveEnabled, null)
+    assert.equal(sentinelRow.enabled, true)
+    assert.equal(sentinelRow.welcomeMessage, null)
+
+    const groupRow = applySavedInput({ id: 'G1', enabled: false, welcomeMessage: '你好' }, { id: 'G1', sentinel: false })
+    assert.equal(groupRow.enabled, false)
+    assert.equal(groupRow.welcomeMessage, '你好')
+    assert.equal(groupRow.leaveMessage, null)
+  })
+})
+
+describe('findExactRow（新增查重的精确匹配，issue #7）', () => {
+  it('命中整串相等的行（大小写不敏感，与服务端搜索语义一致）', () => {
+    const rows = [makeRow({ id: 'G1' }), makeRow({ id: 'G2' })]
+    assert.equal(findExactRow(rows, 'G2')?.id, 'G2')
+    assert.equal(findExactRow(rows, 'g2')?.id, 'G2')
+  })
+
+  it('子串行不顶替整串相等的目标行', () => {
+    const rows = [makeRow({ id: 'G2-extra' })]
+    assert.equal(findExactRow(rows, 'G2'), undefined)
+  })
+
+  it('哨兵行 `*` 与普通 OpenID 互不误配', () => {
+    const rows = [makeRow({ id: '*', sentinel: true })]
+    assert.equal(findExactRow(rows, '*')?.id, '*')
+    assert.equal(findExactRow(rows, '**'), undefined)
+  })
+
+  it('候选为空或无命中时返回 undefined（查重通过，可进入草稿）', () => {
+    assert.equal(findExactRow([], 'G1'), undefined)
+    assert.equal(findExactRow([makeRow({ id: 'G1' })], 'G9'), undefined)
   })
 })
 

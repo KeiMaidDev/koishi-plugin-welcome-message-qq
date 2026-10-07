@@ -135,6 +135,7 @@ closeResponseKeyboard: |-
 控制台侧栏的「入群欢迎管理」页（`/welcome-message-qq`，需要权限等级 `4`）直接读写数据库里的覆盖行。
 
 - 列表按群 OpenID 升序分页，支持按 OpenID 片段搜索；全局默认行固定显示在第一页开头，并标记为全局。
+- 「新增群覆盖」弹出小输入框收集群 OpenID，确认后右侧进入未保存草稿，首次保存才写入数据库；填了已存在的 OpenID 会提示直接编辑该行，放弃草稿不产生任何写入。
 - 可逐字段设置 `welcomeMessage`、`leaveMessage`、`welcomeKeyboard`、`leaveKeyboard`、`messageFormat`、`commandResponseFormat`、`closeResponseMessage`、`closeResponseKeyboard`、`enableResponseMessage`、`enableResponseKeyboard` 十个内容字段，以及群行总开关；留空表示继承，显式置空表示该消息不发，填写内容表示覆盖。
 - 编辑时只写改动过的字段，不会把该群其它已有内容清空。
 - 删除群行后该群回到继承状态；全局默认行不能删除，它的总开关恒为开启，只有它上面的欢迎/离群开关（`welcomeEnabled` / `leaveEnabled`）可以单独调整。

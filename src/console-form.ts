@@ -352,3 +352,41 @@ export function hasFormChanges(state: FormState, row: ConsoleGroupRow | null): b
 
 /** 详情脏状态时切换列表项弹确认框用的固定文案。 */
 export const FORM_CHANGES_MESSAGE = '详情有未保存的改动，离开将丢失这些改动。'
+
+/**
+ * 以本次保存提交的输入为基准，合成详情的来源行（issue #7 草稿首存 / 新行不在当前页时兜底）。
+ *
+ * 字段键必须齐全（未提交的内容字段补 `null` = 继承），否则 `collectSaveInput`
+ * 会把缺失键误判为「继承 → 覆盖」的改动，详情保存后会立刻显示脏状态。
+ * 真正落库的 `updatedAt` 以服务端为准，这里只是本地脏检测基线。
+ */
+export function applySavedInput(
+  input: ConsoleGroupInput,
+  meta: { id: string; sentinel: boolean },
+): ConsoleGroupRow {
+  const saved = meta.sentinel
+    ? { enabled: true }
+    : { welcomeEnabled: null, leaveEnabled: null }
+  return {
+    ...Object.fromEntries(FIELD_KEYS.map(key => [key, null])),
+    ...input,
+    ...saved,
+    id: meta.id,
+    sentinel: meta.sentinel,
+    updatedAt: Date.now(),
+  } as ConsoleGroupRow
+}
+
+/**
+ * 新增查重的精确匹配（issue #7）：在候选行里找出主键等于目标的行。
+ *
+ * 服务端搜索是大小写不敏感的子串匹配（`$regex` + `'i'`），这里保持同一语义做
+ * 大小写不敏感的「整串相等」比较：既能命中已有行 "ABC" 上的输入 "abc"
+ * （否则会建出仅大小写不同的第二行），又不会让子串行 "G2-extra" 顶替 "G2"。
+ * 配套约束见 client 的 `DEDUPE_PAGE_SIZE`：候选必须按服务端单页上限取满，
+ * 否则字典序更小的同串行会把目标行挤出返回结果，造成「已存在」误判。
+ */
+export function findExactRow<T extends { id: string }>(rows: readonly T[], id: string): T | undefined {
+  const lower = id.toLowerCase()
+  return rows.find(row => row.id.toLowerCase() === lower)
+}

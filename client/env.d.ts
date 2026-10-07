@@ -28,6 +28,22 @@ export interface ElMessageBoxApi {
       cancelButtonText?: string
     },
   ): Promise<void>
+  /**
+   * 弹出带单行输入框的确认框，确认时 resolve 输入值。
+   * `inputPattern` 不匹配时确认被拦下并显示 `inputErrorMessage`。
+   */
+  prompt(
+    messageText: string,
+    title?: string,
+    options?: {
+      type?: 'warning' | 'info' | 'success' | 'error'
+      confirmButtonText?: string
+      cancelButtonText?: string
+      inputPlaceholder?: string
+      inputPattern?: RegExp
+      inputErrorMessage?: string
+    },
+  ): Promise<{ value: string }>
 }
 
 export const messageBox: ElMessageBoxApi

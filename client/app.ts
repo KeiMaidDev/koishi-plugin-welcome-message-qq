@@ -1,11 +1,12 @@
 import { message, messageBox } from '@koishijs/client'
 import { defineComponent, h, nextTick, onMounted, reactive, ref, resolveComponent } from 'vue'
 import {
+  applySavedInput,
   collectKeyboardErrors,
   collectSaveInput,
   createFormState,
   FIELD_GROUPS,
-  FIELD_KEYS,
+  findExactRow,
   FORM_CHANGES_MESSAGE,
   hasFormChanges,
   TEXT_FIELDS,
@@ -19,10 +20,10 @@ import {
 } from '../src/console-form'
 import * as api from './api'
 
-/** 内容字段的全空基线：保存后行不在当前列表页时，用它补齐合成来源行的全部字段键。 */
-const rowDefaults = Object.fromEntries(FIELD_KEYS.map(key => [key, null]))
-
 const el = (name: string) => resolveComponent(name)
+
+/** 新增查重候选页大小：取服务端 store 的 MAX_PAGE_SIZE 上限，保证目标行不会被挤出单页。 */
+const DEDUPE_PAGE_SIZE = 200
 
 /** 控制台页名：侧栏入口与页内标题共用同一字面量。 */
 export const PANEL_NAME = '入群欢迎管理'
@@ -48,10 +49,11 @@ export default defineComponent({
     const list = ref<api.ConsoleListResult | null>(null)
     const loading = ref(false)
     const saving = ref(false)
+    /** 新增入口的查重请求进行中：与 saving 分离，避免「保存中」语义被扩成「任意 RPC 进行中」。 */
+    const checking = ref(false)
     const migrating = ref(false)
     const query = reactive({ search: '', page: 1, pageSize: 20 })
     const searchInput = ref('')
-    const newId = ref('')
     const selectedId = ref<string | null>(null)
     const editing = ref<EditorState | null>(null)
     /** 详情数据来源的数据库行；null 表示当前是未入库的新建草稿。 */
@@ -70,16 +72,27 @@ export default defineComponent({
     /**
      * 拉取全局默认行作群行继承 placeholder 的取值来源，并缓存。
      * 列表是分页 + 搜索的，哨兵行不一定在当前页；用 `*` 作搜索词可以
-     * 精确命中主键为 `*` 的哨兵行，pageSize:1 保证一次只取这一行。
+     * 精确命中主键为 `*` 的哨兵行，fetchRowById 会过滤出整串相等的这一行。
      */
     async function fetchGlobalRow(): Promise<api.ConsoleGroupRow | null> {
       try {
-        const result = await api.fetchGroups({ search: '*', page: 1, pageSize: 1 })
-        globalRow = result.rows.find(row => row.sentinel) ?? null
+        const result = await fetchRowById('*')
+        globalRow = result?.sentinel ? result : null
       } catch {
         // 拉取失败不影响编辑主流程，placeholder 用缓存或内置默认值兜底
       }
       return globalRow
+    }
+
+    /**
+     * 用列表 RPC 的搜索语义精确取一行。候选页取服务端单页上限 200：搜索是
+     * 大小写不敏感的子串匹配，按 id 升序返回，页太小会被字典序更小的同串行
+     * 占满，把目标行挤出结果（如查 "G2" 时 "0G2" 先出现）→ 误判不存在 →
+     * 首存静默覆盖已有行。取满后再用 findExactRow 做大小写不敏感的整串比较。
+     */
+    async function fetchRowById(id: string): Promise<api.ConsoleGroupRow | null> {
+      const result = await api.fetchGroups({ search: id, page: 1, pageSize: DEDUPE_PAGE_SIZE })
+      return findExactRow(result.rows, id) ?? null
     }
 
     async function refresh() {
@@ -159,15 +172,40 @@ export default defineComponent({
       loadDetail(row)
     }
 
+    /**
+     * 新增群覆盖：弹小输入框收集群 OpenID，确认后右侧进入未保存草稿（issue #7）。
+     * 查重直接查数据库而不是只看当前列表页——列表是分页 + 搜索的，
+     * 目标行不在当前页时会漏判，保存时就会静默覆盖已有行。
+     * 已存在的 OpenID 提示直接编辑，不进入草稿；放弃草稿不产生任何数据库写入。
+     */
     async function openCreate() {
-      const id = newId.value.trim()
-      if (!id) {
-        message.warning('请先填写群 OpenID。')
+      let id: string
+      try {
+        const { value } = await messageBox.prompt('填写群 OpenID（不是普通 QQ 群号）。', '新增群覆盖', {
+          type: 'info',
+          confirmButtonText: '开始编辑草稿',
+          cancelButtonText: '取消',
+          inputPlaceholder: 'QQ 群 OpenID',
+          inputPattern: /\S/,
+          inputErrorMessage: '群 OpenID 不能为空。',
+        })
+        id = value.trim()
+      } catch {
         return
       }
-      if (list.value?.rows.some(row => row.id === id)) {
-        message.warning('数据库里已有这个群的记录，请直接编辑它。')
+      checking.value = true
+      try {
+        const hit = await fetchRowById(id)
+        if (hit) {
+          message.warning('数据库里已有这个群的记录，请直接编辑它。')
+          await switchTo(hit)
+          return
+        }
+      } catch (error) {
+        message.error('检查群 OpenID 是否已存在失败：' + errorText(error))
         return
+      } finally {
+        checking.value = false
       }
       if (!(await confirmLeave())) return
       selectedId.value = id
@@ -217,9 +255,18 @@ export default defineComponent({
       saving.value = true
       try {
         await api.updateGroup(input)
-        message.success(state.editing.sentinel ? '全局默认已保存' : '群覆盖已保存')
+        // 未入库的新建草稿首次保存 = 创建；入库行保存 = 更新
+        const creating = !editingRow.value
+        message.success(state.editing.sentinel ? '全局默认已保存' : creating ? '群覆盖已创建' : '群覆盖已保存')
         // 哨兵行是群行 placeholder 的继承来源，保存后立即刷新缓存
         if (state.editing.sentinel) void fetchGlobalRow()
+        if (creating) {
+          // 新草稿首存：新行按 id 升序可能落在后面的分页里，用列表搜索定位它，
+          // 保证刷新后能在左侧列表看到并选中新行；搜索框同步显示该 OpenID
+          searchInput.value = state.editing.id
+          query.search = state.editing.id
+          query.page = 1
+        }
         await refresh()
         const row = list.value?.rows.find(item => item.id === state.editing.id)
         if (row) {
@@ -227,17 +274,7 @@ export default defineComponent({
         } else {
           // 该行不在当前页/搜索结果内：按提交值合成来源行（字段键齐全，脏检查才为 false），
           // 让详情保持打开、视为干净基线
-          const saved = state.editing.sentinel
-            ? { welcomeEnabled: state.editing.welcomeEnabled, leaveEnabled: state.editing.leaveEnabled }
-            : { enabled: state.editing.enabled }
-          editingRow.value = {
-            ...rowDefaults,
-            ...input,
-            ...saved,
-            id: state.editing.id,
-            sentinel: state.editing.sentinel,
-            updatedAt: Date.now(),
-          } as api.ConsoleGroupRow
+          editingRow.value = applySavedInput(input, { id: state.editing.id, sentinel: state.editing.sentinel })
         }
       } catch (error) {
         message.error('保存失败：' + errorText(error))
@@ -535,14 +572,7 @@ export default defineComponent({
         h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' }, [
           h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
           h('div', { style: 'flex:1' }),
-          h(el('el-input'), {
-            modelValue: newId.value,
-            'onUpdate:modelValue': (value: string) => { newId.value = value },
-            placeholder: '手工填入群 OpenID 以新增覆盖',
-            size: 'small',
-            style: 'width:260px',
-          }),
-          h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate }, () => '新增群覆盖'),
+          h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate, loading: checking.value }, () => '新增群覆盖'),
           h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
         ]),
         h('div', { style: 'display:flex;gap:12px;align-items:flex-start' }, [
@@ -552,7 +582,7 @@ export default defineComponent({
               ? renderDetail()
               : h('div', {
                   style: 'border:1px dashed #dcdfe6;border-radius:4px;padding:40px 12px;text-align:center;color:#909399;font-size:13px',
-                }, '从左侧选择一个群查看详情；在上方填入群 OpenID 并点「新增群覆盖」可开始编辑。'),
+                }, '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
           ]),
         ]),
       ])
