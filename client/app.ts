@@ -31,6 +31,56 @@ const DEDUPE_PAGE_SIZE = 200
  */
 export const PANEL_NAME = '入群欢迎管理'
 
+/** 详情卡片样式：一次性注入，颜色全部取主题 CSS 变量（暗色主题自动跟随）。 */
+const PANEL_STYLE_ID = 'wm-panel-style'
+
+const PANEL_STYLE = `
+.k-card.wm-detail-card > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 1rem;
+  margin-bottom: 0;
+}
+.k-card.wm-detail-card .wm-detail-id {
+  font-size: 13px;
+  color: var(--k-text-normal);
+}
+.k-card.wm-detail-card > footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wm-detail-card .wm-detail-footer-hint {
+  font-size: 12px;
+  color: var(--k-text-light);
+}
+`
+
+function injectPanelStyle() {
+  if (document.getElementById(PANEL_STYLE_ID)) return
+  const style = document.createElement('style')
+  style.id = PANEL_STYLE_ID
+  style.textContent = PANEL_STYLE
+  document.head.appendChild(style)
+}
+
+/** 表单布局：字段行统一交给 el-form 对齐，标签不再手写固定像素宽度。 */
+const fieldLabelStyle = 'font-size:13px;font-weight:600;color:var(--k-text-dark)'
+
+/** 行内长提示：允许换行、不溢出容器。 */
+const fieldHintStyle = 'flex:1 1 0;min-width:0;font-size:12px;color:var(--k-text-light);line-height:1.5'
+
+/** 错误提示颜色走主题 danger 变量，暗色主题下对比度由主题保证；块级独占一行。 */
+const fieldErrorStyle = 'display:block;font-size:12px;color:var(--k-color-danger);margin-top:4px'
+
+/** 键盘 JSON 文本框等宽字体：用主题代码字体变量。 */
+const monoInputStyle = 'font-family:var(--font-family-code);font-size:12px;line-height:1.5'
+
+/** 三态 / 格式下拉统一宽度：不再混排多种固定像素宽度。 */
+const selectStyle = 'width:120px'
+
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -49,6 +99,8 @@ function formatTime(time: number | null): string {
 export default defineComponent({
   name: 'WelcomeMessageGroupPanel',
   setup() {
+    injectPanelStyle()
+
     const list = ref<api.ConsoleListResult | null>(null)
     const loading = ref(false)
     const saving = ref(false)
@@ -360,8 +412,8 @@ export default defineComponent({
       void fetchGlobalRow()
     })
 
-    const label = (text: string, minWidth?: string) =>
-      h('span', { style: `font-size:13px;font-weight:600;min-width:${minWidth ?? '130px'}` }, text)
+    /** el-form-item 的 label 插槽：统一字重与颜色，宽度交给表单布局。 */
+    const renderFieldLabel = (text: string) => h('span', { style: fieldLabelStyle }, text)
 
     /**
      * 继承模式下输入框的 placeholder，显示真正生效的值（与运行时继承链一致）：
@@ -374,9 +426,10 @@ export default defineComponent({
 
     const renderTextField = (field: TextFieldMeta) => {
       const editor = editors[field.key]
-      return h('div', { key: field.key, id: `wm-field-${field.key}`, style: 'margin-bottom:10px' }, [
-        h('div', { style: 'display:flex;align-items:center;gap:8px' }, [
-          label(field.label, '90px'),
+      const inputStyle = field.keyboard ? monoInputStyle : undefined
+      return h(el('el-form-item'), { key: field.key, id: `wm-field-${field.key}` }, {
+        label: () => renderFieldLabel(field.label),
+        default: () => [
           h(el('el-select'), {
             modelValue: editor.mode,
             'onUpdate:modelValue': (value: 'inherit' | 'override') => {
@@ -384,60 +437,57 @@ export default defineComponent({
               if (field.keyboard) validateKeyboardFields()
             },
             size: 'small',
-            style: 'width:110px',
+            style: selectStyle,
           }, () => [
             h(el('el-option'), { value: 'inherit', label: editing.value?.sentinel ? '内置默认' : '继承全局' }),
             h(el('el-option'), { value: 'override', label: '覆盖' }),
           ]),
-          field.hint ? h('span', { style: 'font-size:12px;color:#909399' }, field.hint) : null,
-        ]),
-        editor.mode === 'override'
-          ? h(el('el-input'), {
-              modelValue: editor.value,
-              'onUpdate:modelValue': (value: string) => {
-                editor.value = value
-                if (field.keyboard) validateKeyboardFields()
-              },
-              type: 'textarea',
-              rows: field.rows,
-              placeholder: field.keyboard ? '{ "rows": [] }' : '',
-            })
-          // 继承模式：禁用的空输入框，用继承来源值作 placeholder，让用户看得到继承源头
-          : h(el('el-input'), {
-              modelValue: '',
-              type: 'textarea',
-              rows: field.rows,
-              disabled: true,
-              placeholder: inheritedPlaceholder(field),
-            }),
-        errors[field.key]
-          ? h('div', { style: 'font-size:12px;color:#f56c6c;margin-top:4px' }, errors[field.key])
-          : null,
-      ])
+          field.hint ? h('span', { style: fieldHintStyle }, field.hint) : null,
+          editor.mode === 'override'
+            ? h(el('el-input'), {
+                modelValue: editor.value,
+                'onUpdate:modelValue': (value: string) => {
+                  editor.value = value
+                  if (field.keyboard) validateKeyboardFields()
+                },
+                type: 'textarea',
+                rows: field.rows,
+                inputStyle,
+                placeholder: field.keyboard ? '{ "rows": [] }' : '',
+              })
+            // 继承模式：禁用的空输入框，用继承来源值作 placeholder，让用户看得到继承源头
+            : h(el('el-input'), {
+                modelValue: '',
+                type: 'textarea',
+                rows: field.rows,
+                disabled: true,
+                inputStyle,
+                placeholder: inheritedPlaceholder(field),
+              }),
+          errors[field.key] ? h('div', { style: fieldErrorStyle }, errors[field.key]) : null,
+        ],
+      })
     }
 
-    const renderFormatField = (field: { key: string; label: string }) => h('div', {
-      key: field.key,
-      style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px',
-    }, [
-      label(field.label, '90px'),
-      h(el('el-select'), {
+    const renderFormatField = (field: { key: string; label: string }) => h(el('el-form-item'), { key: field.key }, {
+      label: () => renderFieldLabel(field.label),
+      default: () => h(el('el-select'), {
         modelValue: formats[field.key],
         'onUpdate:modelValue': (value: FormatMode) => { formats[field.key] = value },
         size: 'small',
-        style: 'width:140px',
+        style: selectStyle,
       }, () => [
         h(el('el-option'), { value: 'inherit', label: editing.value?.sentinel ? '内置默认' : '继承全局' }),
         h(el('el-option'), { value: 'text', label: '普通消息' }),
         h(el('el-option'), { value: 'markdown', label: 'Markdown' }),
       ]),
-    ])
+    })
 
     const renderSwitch = (text: string, modelValue: boolean, onChange: (value: boolean) => void) =>
-      h('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:4px' }, [
-        h('span', { style: 'font-size:13px' }, text),
-        h(el('el-switch'), { modelValue, 'onUpdate:modelValue': onChange }),
-      ])
+      h(el('el-form-item'), { key: text }, {
+        label: () => renderFieldLabel(text),
+        default: () => h(el('el-switch'), { modelValue, 'onUpdate:modelValue': onChange }),
+      })
 
     /** 按字段元数据渲染单个字段行：开关 / 格式下拉 / 三态文本。 */
     const renderDetailField = (field: DetailFieldMeta) => {
@@ -454,49 +504,54 @@ export default defineComponent({
       const current = editing.value
       if (!current) return null
       const dirty = detailDirty()
-      return h('div', { style: 'border:1px solid #ebeef5;border-radius:4px;padding:14px;background:#fff' }, [
-        h('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap' }, [
-          h('span', { style: 'font-size:14px;font-weight:600' }, current.sentinel ? '全局默认' : '群覆盖详情'),
-          h('code', { style: 'font-size:13px' }, current.sentinel ? '全局默认行 *' : current.id),
+      return h(el('k-card'), { class: 'wm-detail-card' }, {
+        // 标题行去重：群行只显示群 OpenID（等宽 code），哨兵行只显示「全局默认」标签；
+        // 草稿与改动两个状态标签保留
+        header: () => [
+          current.sentinel
+            ? h(el('el-tag'), { type: 'warning', size: 'small' }, () => '全局默认')
+            : h('code', { class: 'wm-detail-id' }, current.id),
           editingRow.value ? null : h(el('el-tag'), { type: 'warning', size: 'small' }, () => '未保存草稿'),
           dirty ? h(el('el-tag'), { size: 'small' }, () => '有未保存改动') : null,
-        ]),
-        // 四个可折叠分组：通知开关 / 入群 / 离群 / 开关回执，默认全部展开
-        h(el('el-collapse'), {
-          modelValue: expandedGroups.value,
-          'onUpdate:modelValue': (value: string[]) => { expandedGroups.value = value },
-        }, () => FIELD_GROUPS.map(group => h(el('el-collapse-item'), {
-          key: group.title,
-          title: group.title,
-          name: group.title,
-        }, () => {
-          // 群行只有一个总开关：开关分组显示总开关，哨兵行显示全局入群 / 离群开关
-          if (group.kind === 'switches' && !current.sentinel) {
-            return [renderSwitch('本群通知开关', current.enabled, value => { current.enabled = value })]
-          }
-          return group.fields.map(renderDetailField)
-        }))),
-        h('div', { style: 'border-top:1px solid #ebeef5;margin:10px 0' }),
-        h('div', { style: 'display:flex;align-items:center;gap:8px' }, [
+        ],
+        default: () => h(el('el-form'), { labelPosition: 'top' }, () =>
+          // 四个可折叠分组：通知开关 / 入群 / 离群 / 开关回执，默认全部展开；
+          // 分组对齐与折叠线交给组件库，不再手写分隔线
+          h(el('el-collapse'), {
+            modelValue: expandedGroups.value,
+            'onUpdate:modelValue': (value: string[]) => { expandedGroups.value = value },
+          }, () => FIELD_GROUPS.map(group => h(el('el-collapse-item'), {
+            key: group.title,
+            title: group.title,
+            name: group.title,
+          }, () => {
+            // 群行只有一个总开关：开关分组显示总开关，哨兵行显示全局入群 / 离群开关
+            if (group.kind === 'switches' && !current.sentinel) {
+              return [renderSwitch('本群通知开关', current.enabled, value => { current.enabled = value })]
+            }
+            return group.fields.map(renderDetailField)
+          })))),
+        footer: () => [
           editingRow.value && !current.sentinel
             ? h(el('el-button'), {
                 size: 'small',
                 type: 'danger',
-                text: true,
+                plain: true,
                 disabled: saving.value,
                 onClick: () => { void removeRow() },
               }, () => '删除这条群覆盖')
-            : null,
+            : h('span'),
           h('div', { style: 'flex:1' }),
-          h('span', { style: 'font-size:12px;color:#909399' }, dirty ? '改动将在点击保存后写入数据库。' : '与列表数据一致，暂无需要保存的改动。'),
+          h('span', { class: 'wm-detail-footer-hint' }, dirty ? '未保存的改动不会自动写入。' : '与列表数据一致。'),
           h(el('el-button'), {
+            size: 'small',
             type: 'primary',
             loading: saving.value,
             disabled: !dirty,
             onClick: () => { void save() },
           }, () => '保存'),
-        ]),
-      ])
+        ],
+      })
     }
 
     const renderListItem = (row: api.ConsoleGroupRow) => {
@@ -505,7 +560,7 @@ export default defineComponent({
       // 且 switchTo → loadDetail 是纯客户端切换，不产生任何写请求
       return h('div', {
         key: row.id,
-        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #ebeef5;cursor:pointer;background:${selected ? '#ecf5ff' : 'transparent'}`,
+        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--k-color-divider);cursor:pointer;background:${selected ? 'var(--k-color-primary-fade)' : 'transparent'}`,
         onClick: () => { void switchTo(row) },
       }, [
         h('div', { style: 'flex:1;min-width:0' }, [
@@ -514,7 +569,7 @@ export default defineComponent({
             row.sentinel ? h(el('el-tag'), { type: 'warning', size: 'small' }, () => '全局默认') : null,
           ]),
           h('div', {
-            style: 'font-size:12px;color:#909399;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
+            style: 'font-size:12px;color:var(--k-text-light);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
           }, row.updatedAt ? `更新于 ${formatTime(row.updatedAt)}` : undefined),
           // 覆盖字段 chips：无覆盖时显示继承提示（内置默认 / 全部继承全局）
           h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px' },
@@ -537,7 +592,7 @@ export default defineComponent({
       const rows = list.value?.rows ?? []
       const total = list.value?.total ?? 0
       return h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
-        h('div', { style: 'padding:8px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #ebeef5' }, [
+        h('div', { style: 'padding:8px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--k-color-divider)' }, [
           h(el('el-input'), {
             modelValue: searchInput.value,
             'onUpdate:modelValue': (value: string) => { searchInput.value = value },
@@ -553,7 +608,7 @@ export default defineComponent({
         // 列表体：行容器用原生 overflow 滚动（外层 aside 由框架管理，不另套 el-scrollbar）
         rows.length
           ? h('div', { style: 'flex:1;overflow-y:auto' }, rows.map(renderListItem))
-          : h('div', { style: 'padding:24px 12px;text-align:center;color:#909399;font-size:13px' }, loading.value ? '加载中…' : '数据库里还没有群覆盖记录'),
+          : h('div', { style: 'padding:24px 12px;text-align:center;color:var(--k-text-light);font-size:13px' }, loading.value ? '加载中…' : '数据库里还没有群覆盖记录'),
         total > query.pageSize
           ? h(el('el-pagination'), {
               layout: 'total, prev, pager, next',
@@ -573,21 +628,23 @@ export default defineComponent({
      * k-layout 的 layout-main 是 overflow:hidden 的弹性容器，高度只能从 100% 收敛；
      * el-scrollbar 在高度不可解析时不滚动，故以 height:100% 定高后由它接管滚动。
      */
-    const renderDetailColumn = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', { style: 'padding:0 16px 16px' }, [
+    const renderDetailColumn = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', {
+      style: 'min-height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding:0 16px 16px',
+    }, [
       editing.value
         ? renderDetail()
-        : h('div', {
-            style: 'border:1px dashed #dcdfe6;border-radius:4px;padding:40px 12px;text-align:center;color:#909399;font-size:13px',
-          }, '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
+        // k-empty 自带 height:100%，这里用 flex:1 把它撑到滚动视图剩余高度，居中才生效
+        : h(el('k-empty'), { style: 'flex:1' }, () =>
+            '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
     ]))
 
     return () => {
-      return h(el('k-layout'), {
+      return h(el('k-layout'), null, {
         // 群覆盖列表：k-layout 原生左侧栏（框架样式），窄窗口下由框架切换为抽屉
         left: () => renderList(),
         default: () => h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
-          // 顶部说明：单行灰字
-          h('div', { style: 'font-size:12px;color:#909399;padding:10px 16px 0' },
+          // 顶部说明：单行灰字（颜色走主题变量，暗色主题跟随）
+          h('div', { style: 'font-size:12px;color:var(--k-text-light);padding:10px 16px 0' },
             '本页管理入群欢迎、离群通知与开关回执：群级状态存于数据库，内容字段可继承全局或逐项覆盖，不改写 koishi.yml。'),
           // 全局操作工具行：保持在内容区顶部
           h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px' }, [

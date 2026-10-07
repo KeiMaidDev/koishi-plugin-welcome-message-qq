@@ -35,16 +35,21 @@ const PKG_NAME = 'koishi-plugin-welcome-messge-qq'
 
 /**
  * 计算控制台客户端 entry 路径。
+ * dev 路径必须相对插件根（__dirname/..）解析：ctx.baseDir 是 Koishi 应用根，
+ * 用它拼 client/index.ts 恒不存在，devMode 会静默回退 prod bundle，
+ * 导致源码改动不生效（vite 对 node_modules 下 bundle 的转换缓存不因重建失效）。
  * 生产模式下 @koishijs/plugin-console 的静态服务只放行 console 自身 dist 与
- * 路径含 node_modules 的文件；本插件经 workspace symlink 被 Node realpath 解析到
+ * 路径含 node_modules 的文件；本插件经 workspace junction 被 Node realpath 解析到
  * external/ 下，__dirname 形式的路径会被 403（面板无法显示）。
- * 因此 prod 优先走 node_modules 链接路径，真实安装进 node_modules 时回退 __dirname。
+ * 因此 prod 优先走 node_modules 链接路径，真实安装进 node_modules 时回退 __dirname
+ * （真实安装不含 client/，devMode 下 getFiles 自然回退 prod，语义不变）。
  */
 export function resolveConsoleEntry(ctx: Pick<Context, 'baseDir'>): { dev: string; prod: string } {
+  const pluginRoot = path.resolve(__dirname, '..')
   const viaNodeModules = path.resolve(ctx.baseDir, 'node_modules', PKG_NAME, 'dist')
   return {
-    dev: path.resolve(ctx.baseDir, 'client/index.ts'),
-    prod: fs.existsSync(viaNodeModules) ? viaNodeModules : path.resolve(__dirname, '../dist'),
+    dev: path.resolve(pluginRoot, 'client/index.ts'),
+    prod: fs.existsSync(viaNodeModules) ? viaNodeModules : path.resolve(pluginRoot, 'dist'),
   }
 }
 
