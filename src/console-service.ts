@@ -4,6 +4,7 @@ import {
   deleteGroupRow,
   importLegacyGroups,
   listGroupRows,
+  loadGroupStats,
   saveGroupRow,
   type DatabaseLike,
   type MigrationResult,
@@ -54,6 +55,8 @@ export interface ConsoleGroupRow {
 
 export interface ConsoleListQuery {
   search?: string
+  /** 只看开启（`true`）或关闭（`false`）的群覆盖行；不传时与现状一致，不加开关条件。 */
+  enabled?: boolean
   page?: number
   pageSize?: number
 }
@@ -63,6 +66,26 @@ export interface ConsoleListResult {
   total: number
   page: number
   pageSize: number
+}
+
+/**
+ * 管理页统计条的取值。
+ *
+ * 统计口径：适配器无法枚举机器人所在的群，因此「已开启 / 已关闭」只覆盖数据库里
+ * 已有覆盖行的群；按 `scope: all` 默认开启、又没有覆盖行的群不计入。哨兵行（`*`）
+ * 本身不计入行数，只用来读取两个全局开关。类型与口径的权威定义在 `store.GroupStats`。
+ */
+export interface ConsoleStats {
+  /** 数据库里已有覆盖行的群总数，不含哨兵行。 */
+  total: number
+  /** 上述群里开启（`enabled === true`）的群数。 */
+  enabled: number
+  /** 上述群里关闭（`enabled === false`）的群数。 */
+  disabled: number
+  /** 全局入群开关；哨兵行缺失时为内置默认 `true`。 */
+  welcomeEnabled: boolean
+  /** 全局离群开关；哨兵行缺失时为内置默认 `true`。 */
+  leaveEnabled: boolean
 }
 
 export type ConsoleErrorReason =
@@ -124,18 +147,33 @@ export function toConsoleRow(row: WelcomeMessageGroup): ConsoleGroupRow {
   }
 }
 
-/** 服务端分页 + 按群 OpenID 搜索；渲染层的过滤一律不做。 */
+/** `enabled` 只接受布尔值；其它类型按「不筛选」处理，保持缺省行为不变。 */
+function readEnabledFilter(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+/** 服务端分页 + 按群 OpenID 搜索 + 可选开关筛选；渲染层的过滤一律不做。 */
 export async function listConsoleGroups(
   database: DatabaseLike,
   query: ConsoleListQuery = {},
 ): Promise<ConsoleListResult> {
-  const result = await listGroupRows(database, query)
+  const result = await listGroupRows(database, {
+    search: query.search,
+    enabled: readEnabledFilter(query.enabled),
+    page: query.page,
+    pageSize: query.pageSize,
+  })
   return {
     rows: result.rows.map(toConsoleRow),
     total: result.total,
     page: result.page,
     pageSize: result.pageSize,
   }
+}
+
+/** 读取统计条的开关分布与全局开关；统计口径见 {@link ConsoleStats}。 */
+export async function loadConsoleStats(database: DatabaseLike): Promise<ConsoleStats> {
+  return loadGroupStats(database)
 }
 
 /** 逐字段校验三态内容字段，返回要写入的补丁。 */

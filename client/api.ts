@@ -4,6 +4,7 @@ import type {
   ConsoleGroupRow,
   ConsoleListQuery,
   ConsoleListResult,
+  ConsoleStats,
   ConsoleWriteResult,
 } from '../src/console-service'
 import type { MigrationResult } from '../src/store'
@@ -13,6 +14,7 @@ export type {
   ConsoleGroupRow,
   ConsoleListQuery,
   ConsoleListResult,
+  ConsoleStats,
   ConsoleWriteResult,
   MigrationResult,
 }
@@ -27,6 +29,7 @@ async function assertWrite(result: ConsoleWriteResult): Promise<void> {
 }
 
 export const fetchGroups = (query: ConsoleListQuery) => send<ConsoleListResult>('welcome-message-qq/list', query)
+export const fetchStats = () => send<ConsoleStats>('welcome-message-qq/stats')
 export const updateGroup = async (input: ConsoleGroupInput): Promise<void> =>
   assertWrite(await send<ConsoleWriteResult>('welcome-message-qq/update', input))
 export const deleteGroup = async (id: string): Promise<void> =>

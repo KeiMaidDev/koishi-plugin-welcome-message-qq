@@ -273,6 +273,8 @@ export async function importLegacyGroups(
 
 export interface ListGroupRowsQuery {
   search?: string
+  /** 只看开启（`true`）或关闭（`false`）的群行；不传时与现状一致，不加开关条件。 */
+  enabled?: boolean
   page?: number
   pageSize?: number
 }
@@ -290,7 +292,10 @@ function normalizePage(value: unknown, fallback: number, max?: number): number {
   return max ? Math.min(parsed, max) : parsed
 }
 
-/** 服务端分页 + 按群 OpenID 片段搜索，哨兵行（`*`）排序后自然落在第一页开头。 */
+/**
+ * 服务端分页 + 按群 OpenID 片段搜索 + 可选开关筛选，哨兵行（`*`）排序后自然落在
+ * 第一页开头。`enabled` 只接受布尔值，不传时与现状完全一致、不并入开关条件。
+ */
 export async function listGroupRows(
   database: DatabaseLike,
   query: ListGroupRowsQuery = {},
@@ -298,7 +303,9 @@ export async function listGroupRows(
   const page = normalizePage(query.page, 1)
   const pageSize = normalizePage(query.pageSize, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE)
   const search = typeof query.search === 'string' ? query.search.trim() : ''
-  const match = search ? { id: { $regex: new RegExp(escapeRegExp(search), 'i') } } : {}
+  const match: Record<string, unknown> = {}
+  if (search) match.id = { $regex: new RegExp(escapeRegExp(search), 'i') }
+  if (typeof query.enabled === 'boolean') match.enabled = query.enabled
   const [rows, ids] = await Promise.all([
     database.get(GROUP_TABLE, match, {
       limit: pageSize,
@@ -308,4 +315,52 @@ export async function listGroupRows(
     database.get(GROUP_TABLE, match, ['id']),
   ])
   return { rows, total: ids.length, page, pageSize }
+}
+
+/**
+ * 群覆盖行的开关分布与全局开关。
+ *
+ * 统计口径：适配器无法枚举机器人所在的群，所以「已开启 / 已关闭」只覆盖数据库里
+ * 已有覆盖行的群；按 `scope: all` 默认开启、又没有覆盖行的群不计入。哨兵行（`*`）
+ * 本身不计入行数，只用来读取两个全局开关。
+ */
+export interface GroupStats {
+  /** 数据库里已有覆盖行的群总数，不含哨兵行。 */
+  total: number
+  /** 上述群里 `enabled === true` 的数量。 */
+  enabled: number
+  /** 上述群里 `enabled === false` 的数量。 */
+  disabled: number
+  /** 全局入群开关；哨兵行缺失时回退到内置默认 `true`。 */
+  welcomeEnabled: boolean
+  /** 全局离群开关；哨兵行缺失时回退到内置默认 `true`。 */
+  leaveEnabled: boolean
+}
+
+/**
+ * 统计群覆盖行的开关分布与全局开关。
+ *
+ * 行数只算群覆盖行，哨兵行单独读取、不计入 `total`；两个全局开关在哨兵行缺失或
+ * 字段为空时回退到内置默认 `true`。口径细节见 {@link GroupStats}。
+ */
+export async function loadGroupStats(database: DatabaseLike): Promise<GroupStats> {
+  const groupFilter = { id: { $ne: GLOBAL_ROW_ID } }
+  const [groups, sentinels] = await Promise.all([
+    database.get(GROUP_TABLE, groupFilter, ['id', 'enabled']),
+    database.get(GROUP_TABLE, { id: GLOBAL_ROW_ID }),
+  ])
+  let enabled = 0
+  let disabled = 0
+  for (const row of groups) {
+    if (row.enabled === true) enabled++
+    else if (row.enabled === false) disabled++
+  }
+  const sentinel = sentinels[0]
+  return {
+    total: groups.length,
+    enabled,
+    disabled,
+    welcomeEnabled: sentinel?.welcomeEnabled ?? true,
+    leaveEnabled: sentinel?.leaveEnabled ?? true,
+  }
 }

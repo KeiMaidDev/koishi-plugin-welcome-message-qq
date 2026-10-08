@@ -6,12 +6,14 @@ import { CONSOLE_PANEL_AUTHORITY } from './console-permission'
 import {
   deleteConsoleGroup,
   listConsoleGroups,
+  loadConsoleStats,
   migrateConsoleGroups,
   updateConsoleGroup,
   type ConsoleErrorReason,
   type ConsoleGroupInput,
   type ConsoleListQuery,
   type ConsoleListResult,
+  type ConsoleStats,
   type ConsoleWriteResult,
 } from './console-service'
 import type { MigrationResult } from './store'
@@ -21,6 +23,7 @@ import { errorMessage } from './utils'
 declare module '@koishijs/console' {
   interface Events {
     'welcome-message-qq/list'(query: ConsoleListQuery): Promise<ConsoleListResult>
+    'welcome-message-qq/stats'(): Promise<ConsoleStats>
     'welcome-message-qq/update'(input: ConsoleGroupInput): Promise<ConsoleWriteResult>
     'welcome-message-qq/delete'(id: string): Promise<ConsoleWriteResult>
     'welcome-message-qq/migrate'(options?: { dryRun?: boolean }): Promise<MigrationResult>
@@ -96,6 +99,9 @@ export const setupConsole = Object.assign(
 
     ctx.console.addListener(`${CONSOLE_API_PREFIX}/list`, (query) =>
       run('加载群覆盖列表', () => listConsoleGroups(ctx.database, query ?? {})), requireAuthority)
+
+    ctx.console.addListener(`${CONSOLE_API_PREFIX}/stats`, () =>
+      run('加载统计', () => loadConsoleStats(ctx.database)), requireAuthority)
 
     ctx.console.addListener(`${CONSOLE_API_PREFIX}/update`, async (input) =>
       assertOk(await run('保存群覆盖', () => updateConsoleGroup(ctx.database, input ?? {}))), requireAuthority)
