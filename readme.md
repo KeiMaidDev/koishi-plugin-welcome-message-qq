@@ -150,9 +150,9 @@ closeResponseKeyboard: |-
 | `guildId` | 是 | QQ 群 OpenID，唯一匹配键，不是普通群号 |
 | `enabled` | 否 | 设为 `false` 时完全禁用该群；未填写时不改动数据库里已有的开关，新建的行默认开启 |
 | `welcomeMessage` | 否 | 覆盖欢迎模板；显式空白会跳过欢迎消息 |
-| `welcomeKeyboard` | 否 | JSON 多行文本框；留空继承全局欢迎键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
+| `welcomeKeyboard` | 否 | JSON 字符串；留空继承全局欢迎键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
 | `leaveMessage` | 否 | 覆盖离群模板；显式空白会跳过离群消息 |
-| `leaveKeyboard` | 否 | JSON 多行文本框；留空继承全局离群键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
+| `leaveKeyboard` | 否 | JSON 字符串；留空继承全局离群键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
 | `welcomeEnabled`、`leaveEnabled` | 否 | 不会迁移：新模型里群行只有一个总开关，请迁移后到页面上按需调整 |
 | `messageFormat` | 否 | 不会迁移：格式配置已删除，文案与回执固定按 QQ Markdown 发送 |
 
@@ -269,24 +269,25 @@ h('qq:rawmarkdown', {
 
 ## 按钮结构
 
-欢迎与离群按钮分别由 `welcomeKeyboard`、`leaveKeyboard` 管理，两份开关回执键盘由 `closeResponseKeyboard`、`enableResponseKeyboard` 管理。控制台里这四个字段用 **JSON 多行文本框**编辑。插件在每次事件中独立解析并创建发送对象，不会共享或串改配置。
+欢迎与离群按钮分别由 `welcomeKeyboard`、`leaveKeyboard` 管理，两份开关回执键盘由 `closeResponseKeyboard`、`enableResponseKeyboard` 管理。控制台里这四个字段用 **键盘画布 + 源码视图**编辑：画布按消息在 QQ 群里的行和按钮布局展示，按钮文字取显示文字、按 `render_data.style` 着色；点中按钮会在它下方展开编辑卡。源码视图直接编辑 JSON。两边共用同一份数据：画布改动即时反映到源码，源码里的合法 JSON 也会同步回画布；非法 JSON 会保留原文并给出错误，不破坏画布状态。插件在每次事件中独立解析并创建发送对象，不会共享或串改配置。
 
-插件不再把按钮限制为指令按钮或“所有人可点击”，会按 `adapter-qq-crack` 支持的 QQ 原生结构透传以下字段：
+画布外层是行（`rows`），行内是按钮，都可以增删与上下移动。点中按钮后，编辑卡覆盖 `id`、`render_data.label`、`render_data.visited_label`、`render_data.style`、按钮类型、`action.permission.type` 与 `specify_user_ids` / `specify_role_ids`、`action.data`、`action.enter`、`action.reply`；`anchor`、`click_limit`、`at_bot_show_channel_list`、`unsupport_tips` 收进编辑卡的「高级」区。按钮类型直接对应 QQ 的动作类型：**指令按钮**（`action.type: 2`）、**链接按钮**（`0`）、**回调按钮**（`1`）；回调按钮的 `action.data` 还可以选回复文本、执行指令或原样填写，前两种由编辑器补上本插件前缀。插件不再把按钮限制为指令按钮或“所有人可点击”，会按 `adapter-qq-crack` 支持的 QQ 原生结构透传以下字段：
 
-- 文本框内容必须是合法 JSON，顶层为对象；无法解析时忽略该键盘并记录警告日志，不影响正文发送。
 - `rows`：键盘行数组；保持配置顺序。空数组表示不显示按钮。
 - `buttons`：某一行的按钮数组。空行会被忽略。
-- `id`：可选的按钮标识；未填写时按 `行号-列号` 自动生成（例如 `0-0`、`1-0`），避免 QQ 因缺少按钮 ID 拒绝或忽略键盘。
+- `id`：可选的按钮标识；画布里留空时保存为 `行号-列号`（例如 `0-0`、`1-0`），避免 QQ 因缺少按钮 ID 拒绝或忽略键盘。
 - `render_data.label`：显示文字，不能为空。
 - `render_data.visited_label`：可选的点击后显示文字。
 - `render_data.style`：按钮样式数字，未填写时默认 `2`。
 - `action.type`：QQ 原生动作类型；`0` 为跳转、`1` 为回调、`2` 为指令。插件不再过滤非 `2` 类型，未填写时为兼容旧配置默认 `2`。
 - `action.permission.type`：QQ 原生权限类型；`0` 为指定用户、`1` 为管理员、`2` 为所有人、`3` 为指定身份组。未填写时默认 `2`。
-- `action.permission.specify_user_ids` / `specify_role_ids`：指定用户或身份组 OpenID 数组。
+- `action.permission.specify_user_ids` / `specify_role_ids`：指定用户或身份组 OpenID 数组；编辑卡里每行填一个。
 - `action.data`：动作数据，不能为空；插件只在这个字段中替换除 `{at}` 外的固定占位符。
 - `action.enter`：未填写时默认 `true`。
 - `action.reply`：未填写时默认 `false`。
 - `action.anchor`、`click_limit`、`at_bot_show_channel_list`、`unsupport_tips`：存在且类型正确时原样透传。
+
+「插入内置默认按钮」把该字段的内置默认键盘追加到当前编辑区，可作为空白键盘的起点。画布没有暴露的键（以及类型不匹配、画布无法表示的已知键）在源码视图与保存往返中原样保留，经过一次画布编辑与保存往返也不会丢内容。源码视图里的内容必须是合法 JSON，顶层为对象；解析失败时保留原文并在字段下方给出错误，画布状态不受影响，修正前也无法切回画布。字段选「置空」、键盘 JSON 为空字符串或 `{ "rows": [] }` 三种情况完全等价：运行时都不显示按钮，不影响正文明文发送。
 
 空行、空按钮、空 `label`、空 `action.data` 或结构残缺的按钮会被局部忽略，不会阻断正文和其他有效按钮发送。`action.type: 1` 的回调仅在 `action.data` 使用本插件命名空间时处理；其他回调继续交给对应插件。`action.type: 2` 的目标 Koishi 命令必须已经注册。按钮字段、动作类型、权限组合是否被 QQ 接受，最终以 QQ 平台校验结果为准。
 

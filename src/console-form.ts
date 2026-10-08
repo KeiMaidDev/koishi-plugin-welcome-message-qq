@@ -1,15 +1,12 @@
 import type { ConsoleGroupInput, ConsoleGroupRow } from './console-service'
 import {
-  DEFAULT_CLOSE_RESPONSE_KEYBOARD,
   DEFAULT_CLOSE_RESPONSE_MESSAGE,
-  DEFAULT_ENABLE_RESPONSE_KEYBOARD,
   DEFAULT_ENABLE_RESPONSE_MESSAGE,
-  DEFAULT_LEAVE_KEYBOARD,
+  DEFAULT_KEYBOARDS,
   DEFAULT_LEAVE_MESSAGE,
-  DEFAULT_WELCOME_KEYBOARD,
   DEFAULT_WELCOME_MESSAGE,
 } from './defaults'
-import { validateKeyboardJson } from './keyboard'
+import { normalizeKeyboardJson, validateKeyboardJson } from './keyboard'
 
 /**
  * 控制台面板的表单纯逻辑：从组件 setup 中抽出，供页面直接调用，也可在 Node 测试里导入。
@@ -130,12 +127,9 @@ function fieldValue(row: ConsoleGroupRow | null, key: string): unknown {
 const BUILTIN_DEFAULTS: Record<string, string> = {
   welcomeMessage: DEFAULT_WELCOME_MESSAGE,
   leaveMessage: DEFAULT_LEAVE_MESSAGE,
-  welcomeKeyboard: DEFAULT_WELCOME_KEYBOARD,
-  leaveKeyboard: DEFAULT_LEAVE_KEYBOARD,
+  ...DEFAULT_KEYBOARDS,
   closeResponseMessage: DEFAULT_CLOSE_RESPONSE_MESSAGE,
-  closeResponseKeyboard: DEFAULT_CLOSE_RESPONSE_KEYBOARD,
   enableResponseMessage: DEFAULT_ENABLE_RESPONSE_MESSAGE,
-  enableResponseKeyboard: DEFAULT_ENABLE_RESPONSE_KEYBOARD,
 }
 
 /**
@@ -216,7 +210,10 @@ export function collectGroupInput(state: FormState): ConsoleGroupInput {
     input.leaveEnabled = editing.leaveEnabled
   }
   for (const field of TEXT_FIELDS) {
-    input[field.key] = fieldSubmitValue(editors[field.key])
+    const value = fieldSubmitValue(editors[field.key])
+    input[field.key] = field.keyboard && typeof value === 'string' && value
+      ? normalizeKeyboardJson(value)
+      : value
   }
   return input
 }

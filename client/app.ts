@@ -18,7 +18,9 @@ import {
   type FieldEditor,
   type TextFieldMeta,
 } from '../src/console-form'
+import { DEFAULT_KEYBOARDS, type KeyboardField } from '../src/defaults'
 import * as api from './api'
+import { KeyboardEditor } from './keyboard-editor'
 
 const el = (name: string) => resolveComponent(name)
 
@@ -611,17 +613,26 @@ export default defineComponent({
             h(el('el-option'), { value: 'none', label: '置空' }),
           ]),
           editor.mode === 'override'
-            ? h(el('el-input'), {
-                modelValue: editor.value,
-                'onUpdate:modelValue': (value: string) => {
-                  editor.value = value
-                  if (field.keyboard) validateKeyboardFields()
-                },
-                type: 'textarea',
-                rows: field.rows,
-                inputStyle,
-                placeholder: field.keyboard ? '{ "rows": [] }' : '',
-              })
+            ? field.keyboard
+              // 键盘字段：结构化表单 + 源码视图，纯文本消息字段仍是普通多行输入
+              ? h(KeyboardEditor, {
+                  key: `${editing.value?.id ?? 'draft'}-${field.key}`,
+                  modelValue: editor.value,
+                  defaultKeyboard: DEFAULT_KEYBOARDS[field.key as KeyboardField] ?? '',
+                  'onUpdate:modelValue': (value: string) => {
+                    editor.value = value
+                    validateKeyboardFields()
+                  },
+                })
+              : h(el('el-input'), {
+                  modelValue: editor.value,
+                  'onUpdate:modelValue': (value: string) => {
+                    editor.value = value
+                  },
+                  type: 'textarea',
+                  rows: field.rows,
+                  placeholder: '',
+                })
             // 继承 / 置空：禁用的空输入框；继承显示来源值，置空显示「不发 / 不显示」
             : h(el('el-input'), {
                 modelValue: '',

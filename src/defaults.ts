@@ -78,3 +78,17 @@ export const DEFAULT_ENABLE_RESPONSE_KEYBOARD = JSON.stringify({
     }],
   }],
 }, null, 2)
+
+
+/**
+ * 按控制台字段键索引的内置默认键盘：编辑器的「插入内置默认按钮」按字段取用。
+ * 键与 `WelcomeMessageGroup` 的四个键盘内容字段同名，方便 console-form 与页面直接查表。
+ */
+export const DEFAULT_KEYBOARDS = {
+  welcomeKeyboard: DEFAULT_WELCOME_KEYBOARD,
+  leaveKeyboard: DEFAULT_LEAVE_KEYBOARD,
+  closeResponseKeyboard: DEFAULT_CLOSE_RESPONSE_KEYBOARD,
+  enableResponseKeyboard: DEFAULT_ENABLE_RESPONSE_KEYBOARD,
+} as const
+
+export type KeyboardField = keyof typeof DEFAULT_KEYBOARDS
