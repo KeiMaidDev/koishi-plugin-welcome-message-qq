@@ -12,10 +12,10 @@ import {
   TEXT_FIELDS,
   overrideChips,
   resolveInheritedValue,
+  type ContentFieldMode,
   type DetailFieldMeta,
   type EditorState,
   type FieldEditor,
-  type FormatMode,
   type TextFieldMeta,
 } from '../src/console-form'
 import * as api from './api'
@@ -150,16 +150,13 @@ function injectPanelStyle() {
 /** 表单布局：字段行统一交给 el-form 对齐，标签不再手写固定像素宽度。 */
 const fieldLabelStyle = 'font-size:13px;font-weight:600;color:var(--k-text-dark)'
 
-/** 行内长提示：允许换行、不溢出容器。 */
-const fieldHintStyle = 'flex:1 1 0;min-width:0;font-size:12px;color:var(--k-text-light);line-height:1.5'
-
 /** 错误提示颜色走主题 danger 变量，暗色主题下对比度由主题保证；块级独占一行。 */
 const fieldErrorStyle = 'display:block;font-size:12px;color:var(--k-color-danger);margin-top:4px'
 
 /** 键盘 JSON 文本框等宽字体：用主题代码字体变量。 */
 const monoInputStyle = 'font-family:var(--font-family-code);font-size:12px;line-height:1.5'
 
-/** 三态 / 格式下拉统一宽度：不再混排多种固定像素宽度。 */
+/** 三态下拉统一宽度：不再混排多种固定像素宽度。 */
 const selectStyle = 'width:120px'
 
 /** Tab 行 / 筛选行的通用外壳：同一行内对齐、窄窗自动换行。 */
@@ -204,7 +201,6 @@ export default defineComponent({
     /** 详情数据来源的数据库行；null 表示当前是未入库的新建草稿。 */
     const editingRow = ref<api.ConsoleGroupRow | null>(null)
     const editors = reactive<Record<string, FieldEditor>>({})
-    const formats = reactive<Record<string, FormatMode>>({})
     const errors = reactive<Record<string, string>>({})
     /**
      * 全局默认行缓存，作群行继承 placeholder 的取值来源。
@@ -288,7 +284,7 @@ export default defineComponent({
 
     function currentState() {
       const current = editing.value
-      return current ? { editing: current, editors, formats } : null
+      return current ? { editing: current, editors } : null
     }
 
     function detailDirty(): boolean {
@@ -302,8 +298,6 @@ export default defineComponent({
       editingRow.value = row
       for (const key of Object.keys(editors)) delete editors[key]
       Object.assign(editors, state.editors)
-      for (const key of Object.keys(formats)) delete formats[key]
-      Object.assign(formats, state.formats)
       for (const field of TEXT_FIELDS) delete errors[field.key]
     }
 
@@ -593,6 +587,10 @@ export default defineComponent({
         ? resolveInheritedValue(null, field.key, true)
         : resolveInheritedValue(globalRow, field.key, false)
 
+    /** 置空态输入框的占位文案：消息类＝这条消息不发，键盘类＝不显示按钮。 */
+    const nonePlaceholder = (field: TextFieldMeta): string =>
+      field.keyboard ? '该群不显示按钮' : '该群不发送这条消息'
+
     const renderTextField = (field: TextFieldMeta) => {
       const editor = editors[field.key]
       const inputStyle = field.keyboard ? monoInputStyle : undefined
@@ -601,7 +599,7 @@ export default defineComponent({
         default: () => [
           h(el('el-select'), {
             modelValue: editor.mode,
-            'onUpdate:modelValue': (value: 'inherit' | 'override') => {
+            'onUpdate:modelValue': (value: ContentFieldMode) => {
               editor.mode = value
               if (field.keyboard) validateKeyboardFields()
             },
@@ -610,8 +608,8 @@ export default defineComponent({
           }, () => [
             h(el('el-option'), { value: 'inherit', label: editing.value?.sentinel ? '内置默认' : '继承全局' }),
             h(el('el-option'), { value: 'override', label: '覆盖' }),
+            h(el('el-option'), { value: 'none', label: '置空' }),
           ]),
-          field.hint ? h('span', { style: fieldHintStyle }, field.hint) : null,
           editor.mode === 'override'
             ? h(el('el-input'), {
                 modelValue: editor.value,
@@ -624,33 +622,19 @@ export default defineComponent({
                 inputStyle,
                 placeholder: field.keyboard ? '{ "rows": [] }' : '',
               })
-            // 继承模式：禁用的空输入框，用继承来源值作 placeholder，让用户看得到继承源头
+            // 继承 / 置空：禁用的空输入框；继承显示来源值，置空显示「不发 / 不显示」
             : h(el('el-input'), {
                 modelValue: '',
                 type: 'textarea',
                 rows: field.rows,
                 disabled: true,
                 inputStyle,
-                placeholder: inheritedPlaceholder(field),
+                placeholder: editor.mode === 'none' ? nonePlaceholder(field) : inheritedPlaceholder(field),
               }),
           errors[field.key] ? h('div', { style: fieldErrorStyle }, errors[field.key]) : null,
         ],
       })
     }
-
-    const renderFormatField = (field: { key: string; label: string }) => h(el('el-form-item'), { key: field.key }, {
-      label: () => renderFieldLabel(field.label),
-      default: () => h(el('el-select'), {
-        modelValue: formats[field.key],
-        'onUpdate:modelValue': (value: FormatMode) => { formats[field.key] = value },
-        size: 'small',
-        style: selectStyle,
-      }, () => [
-        h(el('el-option'), { value: 'inherit', label: editing.value?.sentinel ? '内置默认' : '继承全局' }),
-        h(el('el-option'), { value: 'text', label: '普通消息' }),
-        h(el('el-option'), { value: 'markdown', label: 'Markdown' }),
-      ]),
-    })
 
     const renderSwitch = (text: string, modelValue: boolean, onChange: (value: boolean) => void) =>
       h(el('el-form-item'), { key: text }, {
@@ -658,14 +642,13 @@ export default defineComponent({
         default: () => h(el('el-switch'), { modelValue, 'onUpdate:modelValue': onChange }),
       })
 
-    /** 按字段元数据渲染单个字段行：开关 / 格式下拉 / 三态文本。 */
+    /** 按字段元数据渲染单个字段行：开关 / 三态文本。 */
     const renderDetailField = (field: DetailFieldMeta) => {
       if (field.kind === 'switch') {
         return renderSwitch(field.label, editing.value?.[field.key] ?? true, value => {
           if (editing.value) editing.value[field.key] = value
         })
       }
-      if (field.kind === 'format') return renderFormatField(field)
       return renderTextField(field)
     }
 

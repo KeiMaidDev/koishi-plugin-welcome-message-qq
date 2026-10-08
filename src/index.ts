@@ -16,6 +16,7 @@ import {
 import { extendGroupTable } from './model'
 import { setupConsole } from './console'
 import {
+  clearDeprecatedFormatColumns,
   ensureGlobalRow,
   isGuildEnabled,
   loadGroupRows,
@@ -25,17 +26,14 @@ import {
   type GroupRowSet,
 } from './store'
 import {
-  containsAtPlaceholder,
   extractTemplateVariables,
   findUnknownPlaceholders,
   isValidTimeZone,
   renderMessageTemplate,
-  type TemplateRenderMode,
 } from './template'
 import type {
   Config as PluginConfig,
   GroupConfig,
-  MessageFormat,
   NotificationEventType,
   ResolvedNotificationConfig,
   ResolvedResponseConfig,
@@ -176,11 +174,6 @@ const timeZoneSchema = Schema.string()
   .default(DEFAULT_TIME_ZONE)
   .description('IANA 时区名称，例如 Asia/Shanghai。非法或当前运行时不支持的时区无法保存。')
 
-const formatSchema = Schema.union([
-  Schema.const('text').description('普通消息（推荐）：直接按普通文字发送；需要 @ 成员或显示按钮时，插件会自动切换为 QQ Markdown。'),
-  Schema.const('markdown').description('Markdown 消息：把模板按 QQ Markdown 排版发送，适合标题、引用、加粗等样式。'),
-]).role('radio').default('text')
-
 const legacyGroupSchema: Schema<GroupConfig> = Schema.object({
   guildId: Schema.string().required().description('QQ 群 OpenID（不是普通 QQ 群号），作为唯一匹配键。'),
   enabled: Schema.boolean().description('是否在此群启用成员变动通知；未填写时迁移不会改动数据库里已有的开关，新建的行默认开启。'),
@@ -190,10 +183,6 @@ const legacyGroupSchema: Schema<GroupConfig> = Schema.object({
   leaveEnabled: Schema.boolean().description('已弃用：群级状态改由数据库保存，迁移时忽略该项。'),
   leaveMessage: Schema.string().role('textarea').description('离群消息模板。'),
   leaveKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().description('离群按钮 JSON。'),
-  messageFormat: Schema.union([
-    Schema.const('text').description('普通消息。'),
-    Schema.const('markdown').description('Markdown 消息。'),
-  ]).role('radio').description('消息显示方式。'),
 }).description('已弃用：旧配置迁移通道会读取这里的内容，配置页已不再显示本分组')
 
 export const Config: Schema<PluginConfig> = Schema.object({
@@ -209,10 +198,8 @@ export const Config: Schema<PluginConfig> = Schema.object({
   welcomeMessage: Schema.string().role('textarea').hidden().default(DEFAULT_WELCOME_MESSAGE),
   leaveEnabled: Schema.boolean().hidden().default(true),
   leaveMessage: Schema.string().role('textarea').hidden().default(DEFAULT_LEAVE_MESSAGE),
-  messageFormat: formatSchema.hidden(),
   welcomeKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_WELCOME_KEYBOARD),
   leaveKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_LEAVE_KEYBOARD),
-  commandResponseFormat: formatSchema.hidden(),
   closeResponseMessage: Schema.string().role('textarea').hidden().default(DEFAULT_CLOSE_RESPONSE_MESSAGE),
   closeResponseKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_CLOSE_RESPONSE_KEYBOARD),
   enableResponseMessage: Schema.string().role('textarea').hidden().default(DEFAULT_ENABLE_RESPONSE_MESSAGE),
@@ -252,6 +239,15 @@ export interface BuildNotificationOptions {
   now?: () => number
 }
 
+/** 渲染结果 → 发送元素：有按钮时用 qq:rawmarkdown 包裹，否则用 markdown 元素。 */
+function wrapRenderedMessage(rendered: string, rows: ReturnType<typeof normalizeKeyboard>): h {
+  if (!rows.length) return h('markdown', rendered)
+  return h('qq:rawmarkdown', {
+    markdown: { content: rendered },
+    keyboard: { content: { rows } },
+  })
+}
+
 export function buildNotification(
   session: Session,
   eventType: NotificationEventType,
@@ -276,16 +272,8 @@ export function buildNotification(
     debug: options.debug,
     warn: options.warn,
   })
-  const hasButtons = rows.length > 0
-  const needsMarkdown = resolved.messageFormat === 'markdown'
-    || hasButtons
-    || containsAtPlaceholder(template)
-  const renderMode: TemplateRenderMode = resolved.messageFormat === 'markdown'
-    ? 'markdown'
-    : needsMarkdown
-      ? 'markdown-text'
-      : 'text'
-  const rendered = renderMessageTemplate(template, variables, renderMode)
+  // 一律按 Markdown 渲染：模板字面量原样保留，只有模板变量替换出的动态值会被转义。
+  const rendered = renderMessageTemplate(template, variables, 'markdown')
 
   const unknown = findUnknownPlaceholders(template)
   if (unknown.length) {
@@ -296,14 +284,7 @@ export function buildNotification(
     return
   }
 
-  if (hasButtons) {
-    return h('qq:rawmarkdown', {
-      markdown: { content: rendered },
-      keyboard: { content: { rows } },
-    })
-  }
-  if (needsMarkdown) return h('markdown', rendered)
-  return rendered
+  return wrapRenderedMessage(rendered, rows)
 }
 
 /** 开关指令回执；显式置空正文时不回执。 */
@@ -332,25 +313,10 @@ export function buildCommandResponse(
     debug: options.debug,
     warn: options.warn,
   })
-  const hasButtons = rows.length > 0
-  const format = resolved.messageFormat
-  const needsMarkdown = format === 'markdown' || hasButtons || containsAtPlaceholder(fullTemplate)
-  const renderMode: TemplateRenderMode = format === 'markdown'
-    ? 'markdown'
-    : needsMarkdown
-      ? 'markdown-text'
-      : 'text'
-  const rendered = renderMessageTemplate(fullTemplate, variables, renderMode)
+  const rendered = renderMessageTemplate(fullTemplate, variables, 'markdown')
   if (!rendered.trim()) return
 
-  if (hasButtons) {
-    return h('qq:rawmarkdown', {
-      markdown: { content: rendered },
-      keyboard: { content: { rows } },
-    })
-  }
-  if (needsMarkdown) return h('markdown', rendered)
-  return rendered
+  return wrapRenderedMessage(rendered, rows)
 }
 
 function renderPlainReceipt(
@@ -465,6 +431,13 @@ export function apply(ctx: Context, config: PluginConfig) {
     if (created) logger.info('已按旧全局配置创建全局默认行，之后不再从配置文件读取群级状态。')
   }, (error) => {
     logger.warn('创建全局默认行失败，本次运行将使用内置默认值：%s', errorMessage(error))
+  })
+
+  // 启动时一次性清空已删除的两个格式列；幂等，失败只记日志、不阻塞插件。
+  void clearDeprecatedFormatColumns(ctx.database).then((cleared) => {
+    if (cleared > 0) logger.info('已清空 %d 行遗留的消息格式配置。', cleared)
+  }, (error) => {
+    logger.warn('清理遗留的消息格式配置失败：%s', errorMessage(error))
   })
 
   const buildOptions = (session: Session): BuildNotificationOptions => ({

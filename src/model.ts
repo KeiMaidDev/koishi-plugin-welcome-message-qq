@@ -33,6 +33,7 @@ export function extendGroupTable(ctx: Context) {
     leaveMessage: contentField,
     welcomeKeyboard: contentField,
     leaveKeyboard: contentField,
+    // @deprecated 文案与回执已一律按 Markdown 发送，仅作历史数据清理用，0.2.0 再从模型移除。
     messageFormat: contentField,
     commandResponseFormat: contentField,
     closeResponseMessage: contentField,

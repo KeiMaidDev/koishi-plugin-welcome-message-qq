@@ -1,6 +1,6 @@
 # koishi-plugin-welcome-messge-qq
 
-面向 QQ 群的 Koishi 入群欢迎与离群通知插件。插件监听标准 `guild-member-added` / `guild-member-removed` 事件，可配置普通文本、QQ 原生 Markdown，以及与正文同一条发送的 QQ 原生按钮。
+面向 QQ 群的 Koishi 入群欢迎与离群通知插件。插件监听标准 `guild-member-added` / `guild-member-removed` 事件，文案与开关回执一律按 QQ 原生 Markdown 发送，并与正文同一条发送 QQ 原生按钮。
 
 > 插件名中的 `messge` 为当前包名的一部分：`koishi-plugin-welcome-messge-qq`。
 
@@ -45,14 +45,12 @@
 | `welcomeMessage`（仅初始化） | `string` | `欢迎 {at} 加入群聊！` | 欢迎消息模板，支持多行 |
 | `leaveEnabled`（仅初始化） | `boolean` | `true` | 是否发送离群消息（仅全局默认行） |
 | `leaveMessage`（仅初始化） | `string` | `{at} 已离开群聊。` | 中性的离群消息模板，支持多行 |
-| `messageFormat`（仅初始化） | 单选 | 普通消息（推荐） | 选择“普通消息”即可像平常聊天一样填写；只有需要标题、引用、加粗等排版时才选择“Markdown 消息” |
-| `commandResponseFormat`（仅初始化） | `text \| markdown` | `text` | 开启/关闭成功响应的格式；配置按钮时自动使用 Raw Markdown |
 | `closeResponseMessage`（仅初始化） | `string` | Markdown 关闭提示 | 默认提示已关闭，并引导点击“重新开启” |
 | `closeResponseKeyboard`（仅初始化） | `string(JSON)` | 内置“重新开启”按钮 | 关闭成功后的自定义 QQ 键盘 |
 | `enableResponseMessage`（仅初始化） | `string` | Markdown 开启提示 | 默认提示已开启，并引导点击“再次关闭” |
 | `enableResponseKeyboard`（仅初始化） | `string(JSON)` | 内置“再次关闭”按钮 | 开启成功后的自定义 QQ 键盘 |
-| `welcomeKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎”按钮 | 可折叠多行文本框；填写欢迎消息专用 QQ 键盘 JSON |
-| `leaveKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎 + 帮助菜单”按钮 | 可折叠多行文本框；填写离群消息专用 QQ 键盘 JSON |
+| `welcomeKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎”按钮 | 填写欢迎消息专用 QQ 键盘 JSON |
+| `leaveKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎 + 帮助菜单”按钮 | 填写离群消息专用 QQ 键盘 JSON |
 | `groups` | `GroupConfig[]` | `[]` | 已弃用；不再显示在插件配置页，只在「迁移旧配置」时读取，见下文 |
 
 ### 生效范围与优先级
@@ -60,6 +58,7 @@
 状态只有一张表：`id = *` 的行是全局默认值，其余每行是一个群的覆盖。解析顺序固定为 **群覆盖行 > 全局默认行 > 内置默认值**。
 
 - 内容字段是三态的：行里没有该字段或为 `NULL` 表示继承；空字符串表示显式置空（该消息不发）；有值则覆盖。
+- 文案与回执一律按 QQ Markdown 发送：模板里的 Markdown 结构原样保留，只有模板变量替换出的动态值会被转义。不存在「普通文本 / Markdown」格式开关，也没有纯文本快路径。
 - `scope: all`：没有覆盖行的 QQ 群使用全局默认行。
 - `scope: configured`：只有数据库里存在覆盖行的群参与发送。
 - 覆盖行上的 `enabled: false`：无论全局配置如何，该群的欢迎与离群消息都不发送。
@@ -100,7 +99,6 @@
 例如，关闭后显示 Markdown 并提供“重新开启”按钮：
 
 ```yaml
-commandResponseFormat: markdown
 closeResponseMessage: |-
   # 已关闭本群入退群通知
   > 点击下方按钮可以重新开启。
@@ -132,11 +130,13 @@ closeResponseKeyboard: |-
 
 ## 入群欢迎管理页
 
-控制台侧栏的「入群欢迎管理」页（`/welcome-message-qq`，需要权限等级 `4`）直接读写数据库里的覆盖行。
+控制台侧栏的「入群欢迎管理」页（`/welcome-message-qq`，需要权限等级 `4`）直接读写数据库里的覆盖行，整页分「群覆盖」与「全局默认」两个 Tab。
 
-- 列表按群 OpenID 升序分页，支持按 OpenID 片段搜索；全局默认行固定显示在第一页开头，并标记为全局。
+- 顶部统计条给出群覆盖数、已开启 / 已关闭的群数与全局的入群 / 离群开关状态。注意「已开启 / 已关闭」只统计数据库里已有的覆盖行：适配器无法枚举机器人所在的群，按 `scope: all` 默认开启、又没有覆盖行的群不计入。
+- 「群覆盖」Tab 按群 OpenID 升序分页，支持按 OpenID 片段搜索，以及「全部 / 已开启 / 已关闭」筛选；表格列有群 OpenID、覆盖摘要、通知开关与更新时间，开关可以在行内直接切换。
+- 「全局默认」Tab 编辑对所有群生效的那份设置，包括全局入群 / 离群开关。
 - 「新增群覆盖」弹出小输入框收集群 OpenID，确认后右侧进入未保存草稿，首次保存才写入数据库；填了已存在的 OpenID 会提示直接编辑该行，放弃草稿不产生任何写入。
-- 可逐字段设置 `welcomeMessage`、`leaveMessage`、`welcomeKeyboard`、`leaveKeyboard`、`messageFormat`、`commandResponseFormat`、`closeResponseMessage`、`closeResponseKeyboard`、`enableResponseMessage`、`enableResponseKeyboard` 十个内容字段，以及群行总开关；留空表示继承，显式置空表示该消息不发，填写内容表示覆盖。
+- 详情区按「入群 / 离群 / 开关回执」分 Tab，可逐字段设置 `welcomeMessage`、`leaveMessage`、`welcomeKeyboard`、`leaveKeyboard`、`closeResponseMessage`、`closeResponseKeyboard`、`enableResponseMessage`、`enableResponseKeyboard` 八个内容字段，以及群行总开关；每个字段可选「继承 / 覆盖 / 置空」——继承取全局默认（全局默认行取内置默认），覆盖用该群自己的值，置空表示这条消息不发或这份键盘不显示按钮。
 - 编辑时只写改动过的字段，不会把该群其它已有内容清空。
 - 删除群行后该群回到继承状态；全局默认行不能删除，它的总开关恒为开启，只有它上面的欢迎/离群开关（`welcomeEnabled` / `leaveEnabled`）可以单独调整。
 - 「迁移旧配置」把 `koishi.yml` 里 `groups` 的显式字段单向写入数据库，先给出「将覆盖 N 行 / 新建 N 行」的试算结果，确认后才真正写入。迁移不会删除任何已有行，也不会回写配置文件；配置里没写下的字段保持数据库原值。
@@ -153,8 +153,8 @@ closeResponseKeyboard: |-
 | `welcomeKeyboard` | 否 | JSON 多行文本框；留空继承全局欢迎键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
 | `leaveMessage` | 否 | 覆盖离群模板；显式空白会跳过离群消息 |
 | `leaveKeyboard` | 否 | JSON 多行文本框；留空继承全局离群键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
-| `messageFormat` | 否 | 覆盖全局 `text` / `markdown` 格式 |
 | `welcomeEnabled`、`leaveEnabled` | 否 | 不会迁移：新模型里群行只有一个总开关，请迁移后到页面上按需调整 |
+| `messageFormat` | 否 | 不会迁移：格式配置已删除，文案与回执固定按 QQ Markdown 发送 |
 
 重复填写同一个 `guildId` 时以最后一项为准。示例：
 
@@ -168,7 +168,6 @@ groups:
       加入时间：{time}
   - guildId: QQ_GROUP_OPENID_B
     enabled: true
-    messageFormat: markdown
 ```
 
 ## 模板变量
@@ -190,27 +189,25 @@ groups:
 | `{eventType}` | 是 | 是 | 稳定值 `join` 或 `leave` |
 | `{botId}` | 是 | 是 | 当前 QQ 机器人 ID；缺失时为空字符串并记录调试日志 |
 
-时间变量基于 `session.timestamp`，只在时间戳缺失或非法时回退到 `Date.now()` 并告警。Markdown 模式只转义动态变量值，管理员写入的 Markdown 结构保持不变；`{at}` 在转义后作为受信任的 `<@OpenID>` 片段注入。
+时间变量基于 `session.timestamp`，只在时间戳缺失或非法时回退到 `Date.now()` 并告警。模板一律按 Markdown 渲染：只转义模板变量替换出的动态值，管理员写入的 Markdown 结构保持不变；`{at}` 在转义后作为受信任的 `<@OpenID>` 片段注入。
 
 按钮命令中请用 `{userId}` 定位成员，不要使用 `{at}`。`${close.command}` 一类文本只有在外部配置系统事先替换时才会变化，本插件会按字面字符串保留。
 
-## 消息格式示例
+## 消息示例
 
-### 1. 普通文本，无按钮
+### 1. 不用排版，无按钮
 
 ```yaml
-messageFormat: text
 welcomeMessage: |-
   欢迎新成员 {username}！
   加入时间：{time}
 ```
 
-当普通文本模板包含 `{at}` 时，插件会自动选择能保留 `<@OpenID>` 提及的 QQ Markdown 发送路径，并把其余文本安全转义。
+模板一律按 QQ Markdown 渲染，上面这种没有 Markdown 结构的写法照常显示为普通文字。
 
-### 2. QQ Markdown，无按钮
+### 2. 用 Markdown 排版，无按钮
 
 ```yaml
-messageFormat: markdown
 welcomeMessage: |-
   # 欢迎 {at}
   > 加入时间：{time}
@@ -223,7 +220,6 @@ welcomeMessage: |-
 下面是一个包含 `{at}`、`{time}` 和 `action.type: 2` 指令按钮的完整欢迎配置：
 
 ```yaml
-messageFormat: markdown
 welcomeMessage: |-
   # 欢迎 {at}
   > 用户：{username}
@@ -273,7 +269,7 @@ h('qq:rawmarkdown', {
 
 ## 按钮结构
 
-欢迎与离群按钮分别由 `welcomeKeyboard`、`leaveKeyboard` 管理。控制台中的两个字段均显示为**可折叠 JSON 多行文本框**，不会再展开成 `rows → buttons → render_data/action` 的多层表单。插件在每次事件中独立解析并创建发送对象，不会共享或串改配置。
+欢迎与离群按钮分别由 `welcomeKeyboard`、`leaveKeyboard` 管理，两份开关回执键盘由 `closeResponseKeyboard`、`enableResponseKeyboard` 管理。控制台里这四个字段用 **JSON 多行文本框**编辑。插件在每次事件中独立解析并创建发送对象，不会共享或串改配置。
 
 插件不再把按钮限制为指令按钮或“所有人可点击”，会按 `adapter-qq-crack` 支持的 QQ 原生结构透传以下字段：
 

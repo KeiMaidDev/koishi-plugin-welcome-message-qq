@@ -1,7 +1,7 @@
 import type { Session } from 'koishi'
 import type { TemplateEventType, TemplateVariables } from './types'
 
-export type TemplateRenderMode = 'text' | 'markdown' | 'markdown-text'
+export type TemplateRenderMode = 'text' | 'markdown'
 
 const KNOWN_PLACEHOLDER_NAMES = new Set([
   'at',
@@ -119,15 +119,13 @@ export function renderMessageTemplate(
   let output = ''
 
   template.replace(MESSAGE_PLACEHOLDER_PATTERN, (match, name: keyof TemplateVariables, offset: number) => {
-    const literal = template.slice(cursor, offset)
-    output += mode === 'markdown-text' ? escapeMarkdown(literal) : literal
+    output += template.slice(cursor, offset)
     output += name === 'at' ? variables.at : renderValue(String(variables[name]), mode)
     cursor = offset + match.length
     return match
   })
 
-  const tail = template.slice(cursor)
-  output += mode === 'markdown-text' ? escapeMarkdown(tail) : tail
+  output += template.slice(cursor)
   return output
 }
 

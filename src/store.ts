@@ -16,7 +16,6 @@ import {
   type Config,
   type ContentField,
   type GroupConfig,
-  type MessageFormat,
   type NotificationEventType,
   type NotificationScope,
   type ResolvedNotificationConfig,
@@ -43,15 +42,6 @@ function pickString(
   if (typeof local === 'string') return local
   if (typeof global === 'string') return global
   return fallback
-}
-
-function pickFormat(
-  local: MessageFormat | null | undefined,
-  global: MessageFormat | null | undefined,
-): MessageFormat {
-  if (local === 'text' || local === 'markdown') return local
-  if (global === 'text' || global === 'markdown') return global
-  return 'text'
 }
 
 /**
@@ -102,7 +92,6 @@ export function resolveNotificationConfig(
     return {
       enabled: true,
       message: pickString(group?.welcomeMessage, global?.welcomeMessage, DEFAULT_WELCOME_MESSAGE),
-      messageFormat: pickFormat(group?.messageFormat, global?.messageFormat),
       keyboard: pickString(group?.welcomeKeyboard, global?.welcomeKeyboard, DEFAULT_WELCOME_KEYBOARD),
     }
   }
@@ -110,7 +99,6 @@ export function resolveNotificationConfig(
   return {
     enabled: true,
     message: pickString(group?.leaveMessage, global?.leaveMessage, DEFAULT_LEAVE_MESSAGE),
-    messageFormat: pickFormat(group?.messageFormat, global?.messageFormat),
     keyboard: pickString(group?.leaveKeyboard, global?.leaveKeyboard, DEFAULT_LEAVE_KEYBOARD),
   }
 }
@@ -118,17 +106,14 @@ export function resolveNotificationConfig(
 /** 开关指令回执的正文与按钮，同样逐字段解析三态。 */
 export function resolveResponseConfig(rows: GroupRowSet, enabled: boolean): ResolvedResponseConfig {
   const { group, global } = rows
-  const messageFormat = pickFormat(group?.commandResponseFormat, global?.commandResponseFormat)
   if (enabled) {
     return {
       message: pickString(group?.enableResponseMessage, global?.enableResponseMessage, DEFAULT_ENABLE_RESPONSE_MESSAGE),
-      messageFormat,
       keyboard: pickString(group?.enableResponseKeyboard, global?.enableResponseKeyboard, DEFAULT_ENABLE_RESPONSE_KEYBOARD),
     }
   }
   return {
     message: pickString(group?.closeResponseMessage, global?.closeResponseMessage, DEFAULT_CLOSE_RESPONSE_MESSAGE),
-    messageFormat,
     keyboard: pickString(group?.closeResponseKeyboard, global?.closeResponseKeyboard, DEFAULT_CLOSE_RESPONSE_KEYBOARD),
   }
 }
@@ -144,8 +129,6 @@ export function globalRowFromConfig(config: Config): WelcomeMessageGroup {
     leaveMessage: config.leaveMessage ?? null,
     welcomeKeyboard: config.welcomeKeyboard ?? null,
     leaveKeyboard: config.leaveKeyboard ?? null,
-    messageFormat: config.messageFormat ?? null,
-    commandResponseFormat: config.commandResponseFormat ?? null,
     closeResponseMessage: config.closeResponseMessage ?? null,
     closeResponseKeyboard: config.closeResponseKeyboard ?? null,
     enableResponseMessage: config.enableResponseMessage ?? null,
@@ -162,6 +145,28 @@ export async function ensureGlobalRow(database: DatabaseLike, config: Config): P
   if (rows.length) return false
   await database.create(GROUP_TABLE, { ...globalRowFromConfig(config), updatedAt: new Date() })
   return true
+}
+
+/**
+ * 启动时一次性清理已删除的两个格式列：把库中的非空值置空。
+ *
+ * 幂等：查不到非空值就直接返回、不写库，重复启动不会产生写入。
+ * 列本身保留到 0.2.0；SQLite 在模型去掉字段后会保留旧列，不产生破坏性 DDL。
+ * 失败由调用方记日志，不阻塞插件加载。
+ *
+ * @returns 本次被清空的行数；0 表示没有需要清理的值。
+ */
+export async function clearDeprecatedFormatColumns(database: DatabaseLike): Promise<number> {
+  const dirty = {
+    $or: [
+      { messageFormat: { $exists: true } },
+      { commandResponseFormat: { $exists: true } },
+    ],
+  }
+  const rows = await database.get(GROUP_TABLE, dirty, ['id'])
+  if (!rows.length) return 0
+  await database.set(GROUP_TABLE, dirty, { messageFormat: null, commandResponseFormat: null })
+  return rows.length
 }
 
 /**
@@ -207,10 +212,6 @@ export async function deleteGroupRow(database: DatabaseLike, id: string): Promis
 
 function assignContentField(patch: Partial<WelcomeMessageGroup>, field: ContentField, value: unknown) {
   if (value === undefined) return
-  if (field === 'messageFormat' || field === 'commandResponseFormat') {
-    if (value === 'text' || value === 'markdown') patch[field] = value
-    return
-  }
   if (typeof value === 'string') patch[field] = value
 }
 

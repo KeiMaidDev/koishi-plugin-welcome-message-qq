@@ -57,7 +57,6 @@ export interface GroupConfig {
   leaveEnabled?: boolean
   leaveMessage?: string
   leaveKeyboard?: string
-  messageFormat?: MessageFormat
 }
 
 /**
@@ -79,7 +78,13 @@ export interface WelcomeMessageGroup {
   leaveMessage?: string | null
   welcomeKeyboard?: string | null
   leaveKeyboard?: string | null
+  /**
+   * @deprecated 文案与回执已一律按 Markdown 发送，本列只作历史数据清理用，0.2.0 从模型移除。
+   */
   messageFormat?: MessageFormat | null
+  /**
+   * @deprecated 文案与回执已一律按 Markdown 发送，本列只作历史数据清理用，0.2.0 从模型移除。
+   */
   commandResponseFormat?: MessageFormat | null
   closeResponseMessage?: string | null
   closeResponseKeyboard?: string | null
@@ -94,8 +99,6 @@ export const CONTENT_FIELDS = [
   'leaveMessage',
   'welcomeKeyboard',
   'leaveKeyboard',
-  'messageFormat',
-  'commandResponseFormat',
   'closeResponseMessage',
   'closeResponseKeyboard',
   'enableResponseMessage',
@@ -125,14 +128,6 @@ export interface Config {
    * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
    */
   leaveMessage?: string
-  /**
-   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
-   */
-  messageFormat?: MessageFormat
-  /**
-   * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
-   */
-  commandResponseFormat?: MessageFormat
   /**
    * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
    */
@@ -181,13 +176,11 @@ export interface TemplateVariables {
 export interface ResolvedNotificationConfig {
   enabled: boolean
   message: string
-  messageFormat: MessageFormat
   keyboard?: KeyboardConfigSource
 }
 
 export interface ResolvedResponseConfig {
   message: string
-  messageFormat: MessageFormat
   keyboard?: KeyboardConfigSource
 }
 

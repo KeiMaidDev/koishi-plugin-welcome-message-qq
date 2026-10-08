@@ -14,7 +14,7 @@ import { validateKeyboardJson } from './keyboard'
 /**
  * 控制台面板的表单纯逻辑：从组件 setup 中抽出，供页面直接调用，也可在 Node 测试里导入。
  *
- * 三态语义与数据库一致：编辑器里「继承」收集为 `null`，「覆盖」原样提交（空字符串即显式置空）。
+ * 三态语义与数据库一致：编辑器里「继承」收集为 `null`、「置空」收集为 `''`、「覆盖」原样提交。
  */
 
 export interface TextFieldMeta {
@@ -22,25 +22,23 @@ export interface TextFieldMeta {
   label: string
   rows: number
   keyboard?: boolean
-  hint?: string
 }
 
 /** 面板里逐字段三态编辑的文本内容字段。 */
 export const TEXT_FIELDS: TextFieldMeta[] = [
   { key: 'welcomeMessage', label: '入群文案', rows: 3 },
   { key: 'leaveMessage', label: '离群文案', rows: 3 },
-  { key: 'welcomeKeyboard', label: '入群按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 该群不显示按钮' },
-  { key: 'leaveKeyboard', label: '离群按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 该群不显示按钮' },
+  { key: 'welcomeKeyboard', label: '入群按钮', rows: 5, keyboard: true },
+  { key: 'leaveKeyboard', label: '离群按钮', rows: 5, keyboard: true },
   { key: 'closeResponseMessage', label: '关闭回执文案', rows: 3 },
-  { key: 'closeResponseKeyboard', label: '关闭回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
+  { key: 'closeResponseKeyboard', label: '关闭回执按钮', rows: 5, keyboard: true },
   { key: 'enableResponseMessage', label: '开启回执文案', rows: 3 },
-  { key: 'enableResponseKeyboard', label: '开启回执按钮', rows: 5, keyboard: true, hint: '选「覆盖」但留空 = 不显示按钮' },
+  { key: 'enableResponseKeyboard', label: '开启回执按钮', rows: 5, keyboard: true },
 ]
 
-/** 详情区分组里的字段元数据：开关、格式或文本内容字段。 */
+/** 详情区分组里的字段元数据：开关或三态文本内容字段。 */
 export type DetailFieldMeta =
   | { kind: 'switch'; key: 'welcomeEnabled' | 'leaveEnabled'; label: string }
-  | { kind: 'format'; key: 'messageFormat' | 'commandResponseFormat'; label: string }
   | { kind: 'text' } & TextFieldMeta
 
 export interface FieldGroup {
@@ -80,8 +78,6 @@ export const FIELD_GROUPS: FieldGroup[] = [
     fields: [
       textField(TEXT_FIELDS[0]),
       textField(TEXT_FIELDS[2]),
-      // messageFormat 同时作用于入群与离群消息，标签自带全称；归入首个相关分组
-      { kind: 'format', key: 'messageFormat', label: '入群/离群消息格式' },
     ],
   },
   {
@@ -94,7 +90,6 @@ export const FIELD_GROUPS: FieldGroup[] = [
   {
     title: '开关回执',
     fields: [
-      { kind: 'format', key: 'commandResponseFormat', label: '回执格式' },
       textField(TEXT_FIELDS[4]),
       textField(TEXT_FIELDS[5]),
       textField(TEXT_FIELDS[6]),
@@ -103,14 +98,7 @@ export const FIELD_GROUPS: FieldGroup[] = [
   },
 ]
 
-export const FORMAT_FIELDS = [
-  { key: 'messageFormat', label: '入群/离群消息格式' },
-  { key: 'commandResponseFormat', label: '开关回执格式' },
-]
-
-export type FormatMode = 'inherit' | 'text' | 'markdown'
-
-export type ContentFieldMode = 'inherit' | 'override'
+export type ContentFieldMode = 'inherit' | 'override' | 'none'
 
 /** 单个内容字段的编辑器状态：选「继承」时 value 不提交。 */
 export interface FieldEditor {
@@ -131,7 +119,6 @@ export interface EditorState {
 export interface FormState {
   editing: EditorState
   editors: Record<string, FieldEditor>
-  formats: Record<string, FormatMode>
 }
 
 /** 按字段键读行值；row 为 null（新建草稿）或字段缺失时返回 null。 */
@@ -139,7 +126,7 @@ function fieldValue(row: ConsoleGroupRow | null, key: string): unknown {
   return row ? (row as unknown as Record<string, unknown>)[key] : null
 }
 
-/** 内容字段的内置默认值；格式与开关字段没有内置默认（运行时兜底取值），映射为空。 */
+/** 内容字段的内置默认值；只有内容字段有内置默认，开关没有。 */
 const BUILTIN_DEFAULTS: Record<string, string> = {
   welcomeMessage: DEFAULT_WELCOME_MESSAGE,
   leaveMessage: DEFAULT_LEAVE_MESSAGE,
@@ -157,7 +144,7 @@ const BUILTIN_DEFAULTS: Record<string, string> = {
  * 与运行时继承链一致（群覆盖 → 全局默认行 → 内置默认，见 `src/store.ts` 的 pickString）：
  * - 编辑群行（`isSentinel = false`）：先取全局默认行（`row`）的值，没有时兜底内置默认值；
  * - 编辑哨兵行（`isSentinel = true`）：继承指向内置默认值。
- * 格式与开关字段没有内置默认文本，为 undefined，placeholder 显示占位文案。
+ * 开关字段没有内置默认文本，为 undefined，placeholder 显示占位文案。
  */
 export function resolveInheritedValue(
   row: ConsoleGroupRow | null | undefined,
@@ -172,7 +159,7 @@ export function resolveInheritedValue(
 /**
  * 由数据库行（或 null = 新建草稿）初始化表单状态。
  *
- * 行里的字符串值（含空串）恢复为「覆盖」，`null` / 缺失恢复为「继承」；
+ * 非空字符串恢复为「覆盖」、空串恢复为「置空」、`null` / 缺失恢复为「继承」；
  * 群行开关默认开启；哨兵行的入群 / 离群开关只在显式为 `false` 时关闭。
  */
 export function createFormState(row: ConsoleGroupRow | null, id: string): FormState {
@@ -187,16 +174,11 @@ export function createFormState(row: ConsoleGroupRow | null, id: string): FormSt
   for (const field of TEXT_FIELDS) {
     const value = fieldValue(row, field.key)
     editors[field.key] = {
-      mode: typeof value === 'string' ? 'override' : 'inherit',
+      mode: typeof value !== 'string' ? 'inherit' : value === '' ? 'none' : 'override',
       value: typeof value === 'string' ? value : '',
     }
   }
-  const formats: Record<string, FormatMode> = {}
-  for (const field of FORMAT_FIELDS) {
-    const value = fieldValue(row, field.key)
-    formats[field.key] = value === 'markdown' ? 'markdown' : value === 'text' ? 'text' : 'inherit'
-  }
-  return { editing, editors, formats }
+  return { editing, editors }
 }
 
 /** 校验表单里所有键盘字段的 JSON，返回「字段 → 错误文案」；只检查覆盖模式。 */
@@ -210,14 +192,21 @@ export function collectKeyboardErrors(editors: Record<string, FieldEditor>): Rec
   return errors
 }
 
+/** 表单三态 → 提交值：继承 `null`、置空 `''`、覆盖原值。收集与差异判定共用。 */
+export function fieldSubmitValue(editor: FieldEditor): string | null {
+  if (editor.mode === 'inherit') return null
+  if (editor.mode === 'none') return ''
+  return editor.value
+}
+
 /**
  * 把表单状态收集为 update RPC 的入参。
  *
  * 群行只带总开关；哨兵行 `enabled` 恒为 true，并携带全局入群 / 离群开关。
- * 继承字段一律收集为 `null`，覆盖字段原样提交（空字符串即显式置空）。
+ * 继承字段收集为 `null`，置空字段收集为 `''`，覆盖字段原样提交。
  */
 export function collectGroupInput(state: FormState): ConsoleGroupInput {
-  const { editing, editors, formats } = state
+  const { editing, editors } = state
   const input: ConsoleGroupInput = {
     id: editing.id,
     enabled: editing.sentinel ? true : editing.enabled,
@@ -227,12 +216,7 @@ export function collectGroupInput(state: FormState): ConsoleGroupInput {
     input.leaveEnabled = editing.leaveEnabled
   }
   for (const field of TEXT_FIELDS) {
-    const editor = editors[field.key]
-    input[field.key] = editor.mode === 'override' ? editor.value : null
-  }
-  for (const field of FORMAT_FIELDS) {
-    const mode = formats[field.key]
-    input[field.key] = mode === 'inherit' ? null : mode
+    input[field.key] = fieldSubmitValue(editors[field.key])
   }
   return input
 }
@@ -245,46 +229,25 @@ export interface OverrideChip {
   fieldKey?: string
 }
 
-const FORMAT_CHIP_TEXT: Record<'messageFormat' | 'commandResponseFormat', string> = {
-  messageFormat: '消息格式',
-  commandResponseFormat: '回执格式',
-}
-
-const FORMAT_CHIP_VALUE: Record<string, string> = { text: '普通消息', markdown: 'Markdown' }
-
-/** 格式字段的 chip 文案；行里的非法取值原样显示，避免 chips 静默丢字段。 */
-function formatChip(field: 'messageFormat' | 'commandResponseFormat', value: string): OverrideChip {
-  return { text: `${FORMAT_CHIP_TEXT[field]} · ${FORMAT_CHIP_VALUE[value] ?? value}`, fieldKey: field }
-}
-
 /**
- * 左列列表项的覆盖字段 chips（issue #6）：逐字段检查行值，非空即给一个 chip
- * （空串显式置空也算覆盖）；格式字段 chip 带格式取值。按 TEXT_FIELDS → FORMAT_FIELDS
- * 的定义顺序输出，与详情分组顺序一致；按钮字段标签本身已含「按钮」。
+ * 左列列表项的覆盖字段 chips（issue #6）：逐字段检查行值，非 null 即给一个 chip。
+ * 非空字符串是「覆盖」，空串是「置空」，两者用文案区分；按 TEXT_FIELDS 的定义顺序
+ * 输出，与详情分组顺序一致；按钮字段标签本身已含「按钮」。
  * 没有任何覆盖时给一条继承提示，哨兵行与群行文案不同。
  */
 export function overrideChips(row: ConsoleGroupRow): OverrideChip[] {
   const chips: OverrideChip[] = []
   for (const field of TEXT_FIELDS) {
-    if (fieldValue(row, field.key) !== null) {
-      chips.push({ text: field.label, fieldKey: field.key })
-    }
-  }
-  for (const field of FORMAT_FIELDS) {
     const value = fieldValue(row, field.key)
-    if (typeof value === 'string') {
-      chips.push(formatChip(field.key as 'messageFormat' | 'commandResponseFormat', value))
-    }
+    if (value === null || value === undefined) continue
+    chips.push({ text: value === '' ? `${field.label} · 置空` : field.label, fieldKey: field.key })
   }
   if (!chips.length) return [{ text: row.sentinel ? '内置默认' : '全部继承全局' }]
   return chips
 }
 
 /** 内容字段键集合：与 `ConsoleGroupRow` 的内容字段一一对应，收集与摘共用。 */
-export const FIELD_KEYS: readonly string[] = [
-  ...TEXT_FIELDS.map(field => field.key),
-  ...FORMAT_FIELDS.map(field => field.key),
-]
+export const FIELD_KEYS: readonly string[] = TEXT_FIELDS.map(field => field.key)
 
 /**
  * 按字段键对比表单状态与来源行，收集真正变化的内容字段。
@@ -299,16 +262,7 @@ export function collectGroupChanges(
 ): ConsoleGroupInput | null {
   const changed: Record<string, boolean> = {}
   for (const field of TEXT_FIELDS) {
-    const editor = state.editors[field.key]
-    const original = fieldValue(row, field.key)
-    changed[field.key] = editor.mode === 'override'
-      ? editor.value !== original
-      : original !== null
-  }
-  for (const field of FORMAT_FIELDS) {
-    const mode = state.formats[field.key]
-    // 表单里的「继承」提交为 null，与行值比较前先换算成同一套取值
-    const next = mode === 'inherit' ? null : mode
+    const next = fieldSubmitValue(state.editors[field.key])
     changed[field.key] = next !== fieldValue(row, field.key)
   }
   if (!Object.values(changed).some(Boolean)) return null

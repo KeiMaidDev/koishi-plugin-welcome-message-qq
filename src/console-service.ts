@@ -13,13 +13,11 @@ import {
   CONTENT_FIELDS,
   type ContentField,
   type GroupConfig,
-  type MessageFormat,
   type WelcomeMessageGroup,
 } from './types'
 
 export { GLOBAL_ROW_ID }
 
-const FORMAT_FIELDS: readonly ContentField[] = ['messageFormat', 'commandResponseFormat']
 const KEYBOARD_FIELDS: readonly ContentField[] = [
   'welcomeKeyboard',
   'leaveKeyboard',
@@ -43,8 +41,6 @@ export interface ConsoleGroupRow {
   leaveMessage: string | null
   welcomeKeyboard: string | null
   leaveKeyboard: string | null
-  messageFormat: MessageFormat | null
-  commandResponseFormat: MessageFormat | null
   closeResponseMessage: string | null
   closeResponseKeyboard: string | null
   enableResponseMessage: string | null
@@ -111,10 +107,6 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function readFormat(value: unknown): MessageFormat | null {
-  return value === 'text' || value === 'markdown' ? value : null
-}
-
 function readTimestamp(value: unknown): number | null {
   const parsed = value instanceof Date
     ? value.getTime()
@@ -137,8 +129,6 @@ export function toConsoleRow(row: WelcomeMessageGroup): ConsoleGroupRow {
     leaveMessage: readString(row.leaveMessage),
     welcomeKeyboard: readString(row.welcomeKeyboard),
     leaveKeyboard: readString(row.leaveKeyboard),
-    messageFormat: readFormat(row.messageFormat),
-    commandResponseFormat: readFormat(row.commandResponseFormat),
     closeResponseMessage: readString(row.closeResponseMessage),
     closeResponseKeyboard: readString(row.closeResponseKeyboard),
     enableResponseMessage: readString(row.enableResponseMessage),
@@ -184,13 +174,6 @@ function buildContentPatch(
   for (const field of CONTENT_FIELDS) {
     const value = input[field]
     if (value === undefined) continue
-    if (FORMAT_FIELDS.includes(field)) {
-      if (value !== null && value !== 'text' && value !== 'markdown') {
-        return { error: `${field} 只能是 null、text 或 markdown。`, reason: 'invalid_field' }
-      }
-      patch[field] = value
-      continue
-    }
     if (value !== null && typeof value !== 'string') {
       return { error: `${field} 只能是 null 或字符串。`, reason: 'invalid_field' }
     }
