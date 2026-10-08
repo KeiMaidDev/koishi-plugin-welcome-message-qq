@@ -30,16 +30,19 @@ interface ButtonSelection {
   button: number
 }
 
-const rootStyle = 'display:flex;flex-direction:column;gap:8px'
+/** 画布一行最多画五个按钮：这不是协议限制，而是画布的行宽上限，避免长行把详情栏撑出横向溢出。 */
+const CANVAS_BUTTONS_PER_LINE = 5
+
+const rootStyle = 'display:flex;flex-direction:column;gap:8px;width:100%;min-width:0;max-width:100%;box-sizing:border-box'
 const toolbarStyle = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap'
-const rowBoxStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px'
-const canvasRowStyle = 'display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;min-height:40px'
-const buttonColumnStyle = 'display:flex;flex-direction:column;gap:6px;min-width:104px;max-width:100%'
-const editCardStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--k-color-bg-2,transparent);width:min(560px,82vw)'
+const rowBoxStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;min-width:0;box-sizing:border-box'
+/** 画布的一行：按钮等分列宽、可收缩，行宽永远不超过详情栏。 */
+const canvasLineStyle = (count: number) => `display:grid;grid-template-columns:repeat(${count},minmax(0,1fr));gap:8px;align-items:start;min-width:0`
+const editCardStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--k-color-bg-2,transparent);width:min(560px,100%);min-width:0;max-width:100%;box-sizing:border-box'
 const labelStyle = 'display:block;font-size:12px;font-weight:600;color:var(--k-text-dark);margin-bottom:2px'
-const gridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px'
-const fullGridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px'
-const inlineStyle = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap'
+const gridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(150px,100%),1fr));gap:8px;min-width:0'
+const fullGridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:8px;min-width:0'
+const inlineStyle = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0'
 const monoStyle = 'font-family:var(--font-family-code);font-size:12px;line-height:1.5'
 const smallLabelStyle = 'font-size:12px;font-weight:600;color:var(--k-text-dark)'
 const hintStyle = 'font-size:12px;color:var(--k-text-light)'
@@ -48,7 +51,7 @@ const emptyStyle = 'border:1px dashed var(--k-color-divider);border-radius:6px;p
 
 /** 一个带标签的控件：字段较多，统一用「标签在上、控件在下」的紧凑布局。 */
 function field(label: string, control: VNode): VNode {
-  return h('div', [h('span', { style: labelStyle }, label), control])
+  return h('div', { style: 'min-width:0' }, [h('span', { style: labelStyle }, label), control])
 }
 
 function textControl(value: string, onChange: (value: string) => void, extra: Record<string, unknown> = {}): VNode {
@@ -133,7 +136,7 @@ function buttonCanvasStyle(style: number | undefined, selected: boolean): string
       ? 'background:var(--k-color-bg-2,#f5f5f5);color:var(--k-text-dark);border-color:var(--k-color-divider)'
       : 'background:var(--k-fill-light,rgba(127,127,127,.08));color:var(--k-text-dark);border-color:var(--k-color-divider)'
   const outline = selected ? ';box-shadow:0 0 0 2px var(--k-color-primary,#1677ff)' : ''
-  return `${palette};border-radius:6px;padding:7px 12px;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;justify-content:center;font:inherit${outline}`
+  return `${palette};border-radius:6px;padding:7px 12px;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;justify-content:center;font:inherit;width:100%;min-width:0;box-sizing:border-box;overflow:hidden${outline}`
 }
 
 function unknownCount(button: KeyboardButtonDocument): number {
@@ -430,24 +433,20 @@ export const KeyboardEditor = defineComponent({
       const isSelected = selectionOf(rowIndex, buttonIndex)
       const label = (button.renderData.label ?? '').trim() || '未命名按钮'
       const kindLabel = BUTTON_KIND_ENTRIES.find(entry => entry.value === keyboardButtonKind(button.action.type))?.label ?? '按钮'
-      return h('div', {
+      return h('button', {
         key: `${rowIndex}-${buttonIndex}`,
-        style: buttonColumnStyle,
+        type: 'button',
+        title: `${label} · ${kindLabel}`,
+        style: buttonCanvasStyle(button.renderData.style, isSelected),
+        onClick: () => { selected.value = { row: rowIndex, button: buttonIndex } },
       }, [
-        h('button', {
-          type: 'button',
-          title: `${label} · ${kindLabel}`,
-          style: buttonCanvasStyle(button.renderData.style, isSelected),
-          onClick: () => { selected.value = { row: rowIndex, button: buttonIndex } },
-        }, [
-          h('span', { style: 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px' }, label),
-        ]),
-        isSelected ? renderEditCard(button, rowIndex, buttonIndex) : null,
+        h('span', { style: 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label),
       ])
     }
 
     function renderRow(row: KeyboardRowDocument, rowIndex: number): VNode {
-      return h('div', { style: rowBoxStyle, key: rowIndex }, [
+      const selectedButton = selected.value?.row === rowIndex ? selected.value.button : -1
+      const children: VNode[] = [
         h('div', { style: inlineStyle }, [
           h('span', { style: smallLabelStyle }, `第 ${rowIndex + 1} 行`),
           h('span', { style: hintStyle }, row.buttons.length ? `${row.buttons.length} 个按钮` : '空行'),
@@ -457,10 +456,21 @@ export const KeyboardEditor = defineComponent({
           iconButton('删除行', '删除整行', false, () => removeRow(rowIndex)),
           h(el('el-button'), { size: 'small', type: 'primary', text: true, onClick: () => addButton(row, rowIndex) }, () => '添加按钮'),
         ]),
-        row.buttons.length
-          ? h('div', { style: canvasRowStyle }, row.buttons.map((button, buttonIndex) => renderCanvasButton(button, rowIndex, buttonIndex)))
-          : h('div', { style: hintStyle }, '这一行还没有按钮，发送时会忽略空行。点击右上角「添加按钮」开始。'),
-      ])
+      ]
+      if (row.buttons.length) {
+        // 一行的按钮按 CANVAS_BUTTONS_PER_LINE 分块渲染；编辑卡就地展开在所选按钮所在那块的下面。
+        for (let start = 0; start < row.buttons.length; start += CANVAS_BUTTONS_PER_LINE) {
+          const line = row.buttons.slice(start, start + CANVAS_BUTTONS_PER_LINE)
+          children.push(h('div', { style: canvasLineStyle(line.length), key: `line-${start}` },
+            line.map((button, offset) => renderCanvasButton(button, rowIndex, start + offset))))
+          if (selectedButton >= start && selectedButton < start + line.length) {
+            children.push(renderEditCard(row.buttons[selectedButton], rowIndex, selectedButton))
+          }
+        }
+      } else {
+        children.push(h('div', { style: hintStyle }, '这一行还没有按钮，发送时会忽略空行。点击右上角「添加按钮」开始。'))
+      }
+      return h('div', { style: rowBoxStyle, key: rowIndex }, children)
     }
 
     function renderCanvas(): VNode[] {
