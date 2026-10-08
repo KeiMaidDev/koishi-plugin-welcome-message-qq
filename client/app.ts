@@ -31,6 +31,65 @@ const DEDUPE_PAGE_SIZE = 200
  */
 export const PANEL_NAME = '入群欢迎管理'
 
+/** 顶部两个并列页签：群覆盖列表与全局默认（哨兵行）。 */
+type PanelTab = 'groups' | 'global'
+
+/** 详情卡内部的三个页签。 */
+type DetailTab = 'welcome' | 'leave' | 'receipt'
+
+const DETAIL_TABS: { key: DetailTab; label: string }[] = [
+  { key: 'welcome', label: '入群' },
+  { key: 'leave', label: '离群' },
+  { key: 'receipt', label: '开关回执' },
+]
+
+/** 筛选状态 → 服务端 `enabled` 参数；`all` 不传条件，与现状一致。 */
+type FilterMode = 'all' | 'enabled' | 'disabled'
+
+function filterToEnabled(filter: FilterMode): boolean | undefined {
+  if (filter === 'enabled') return true
+  if (filter === 'disabled') return false
+  return undefined
+}
+
+/**
+ * 详情内页签 → console-form 里的内容分组标题。分组元数据仍只在 console-form 定义一处，
+ * 这里只是把三个标题收进一张表，避免裸字面量散落在各处。
+ */
+const TAB_GROUP_TITLE: Record<DetailTab, string> = {
+  welcome: '入群',
+  leave: '离群',
+  receipt: '开关回执',
+}
+
+/** 取某个内容分组里的字段（开关单独归类，不计入内容分组）。 */
+function contentFieldsOf(tab: DetailTab): DetailFieldMeta[] {
+  const group = FIELD_GROUPS.find(item => item.title === TAB_GROUP_TITLE[tab])
+  return group ? group.fields.filter(field => field.kind !== 'switch') : []
+}
+
+/** 从 console-form 的分组元数据里取开关字段；标签只在 console-form 定义一处。 */
+function switchFieldOf(key: 'welcomeEnabled' | 'leaveEnabled'): DetailFieldMeta | null {
+  for (const group of FIELD_GROUPS) {
+    for (const field of group.fields) {
+      if (field.kind === 'switch' && field.key === key) return field
+    }
+  }
+  return null
+}
+
+/**
+ * 详情卡内部页签的字段归属（issue #13）：入群 / 离群 / 开关回执。
+ * 哨兵行的全局入群 / 离群开关各归对应页签；群行只有一个总开关，放在卡头。
+ */
+function fieldsForTab(tab: DetailTab, sentinel: boolean): DetailFieldMeta[] {
+  const fields = contentFieldsOf(tab)
+  const toggle = !sentinel || tab === 'receipt'
+    ? null
+    : switchFieldOf(tab === 'welcome' ? 'welcomeEnabled' : 'leaveEnabled')
+  return toggle ? [toggle, ...fields] : fields
+}
+
 /** 详情卡片样式：一次性注入，颜色全部取主题 CSS 变量（暗色主题自动跟随）。 */
 const PANEL_STYLE_ID = 'wm-panel-style'
 
@@ -53,6 +112,28 @@ const PANEL_STYLE = `
   gap: 8px;
 }
 .wm-detail-card .wm-detail-footer-hint {
+  font-size: 12px;
+  color: var(--k-text-light);
+}
+.wm-stat-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 10px 16px;
+  border: 1px solid var(--k-color-divider);
+  border-radius: 6px;
+}
+.wm-stat-item {
+  min-width: 96px;
+  text-align: center;
+}
+.wm-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+}
+.wm-stat-label {
+  margin-top: 2px;
   font-size: 12px;
   color: var(--k-text-light);
 }
@@ -81,6 +162,12 @@ const monoInputStyle = 'font-family:var(--font-family-code);font-size:12px;line-
 /** 三态 / 格式下拉统一宽度：不再混排多种固定像素宽度。 */
 const selectStyle = 'width:120px'
 
+/** Tab 行 / 筛选行的通用外壳：同一行内对齐、窄窗自动换行。 */
+const toolbarStyle = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap'
+
+/** 详情栏最小宽度：两栏在窄窗下由此触发 flex-wrap 纵向堆叠。 */
+const detailPaneStyle = 'flex:1;min-width:280px;display:flex;flex-direction:column'
+
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -101,13 +188,16 @@ export default defineComponent({
   setup() {
     injectPanelStyle()
 
+    const activeTab = ref<PanelTab>('groups')
+    const detailTab = ref<DetailTab>('welcome')
+    const stats = ref<api.ConsoleStats | null>(null)
     const list = ref<api.ConsoleListResult | null>(null)
     const loading = ref(false)
     const saving = ref(false)
     /** 新增入口的查重请求进行中：与 saving 分离，避免「保存中」语义被扩成「任意 RPC 进行中」。 */
     const checking = ref(false)
     const migrating = ref(false)
-    const query = reactive({ search: '', page: 1, pageSize: 20 })
+    const query = reactive({ filter: 'all' as FilterMode, search: '', page: 1, pageSize: 20 })
     const searchInput = ref('')
     const selectedId = ref<string | null>(null)
     const editing = ref<EditorState | null>(null)
@@ -116,17 +206,17 @@ export default defineComponent({
     const editors = reactive<Record<string, FieldEditor>>({})
     const formats = reactive<Record<string, FormatMode>>({})
     const errors = reactive<Record<string, string>>({})
-    /** 四个折叠分组默认全部展开。 */
-    const expandedGroups = ref<string[]>(FIELD_GROUPS.map(group => group.title))
     /**
      * 全局默认行缓存，作群行继承 placeholder 的取值来源。
-     * 列表是分页 + 搜索的，哨兵行可能不在当前页，这里单独拉取并缓存。
+     * 列表是分页 + 搜索 + 筛选的，哨兵行不一定在当前结果里，这里单独拉取并缓存。
      */
     let globalRow: api.ConsoleGroupRow | null = null
+    /** 群覆盖页签上次打开的群；切回该页签时恢复，避免详情跳到空白。 */
+    let lastGroupId: string | null = null
 
     /**
      * 拉取全局默认行作群行继承 placeholder 的取值来源，并缓存。
-     * 列表是分页 + 搜索的，哨兵行不一定在当前页；用 `*` 作搜索词可以
+     * 列表是分页 + 筛选的，哨兵行不一定在当前结果里；用 `*` 作搜索词可以
      * 精确命中主键为 `*` 的哨兵行，fetchRowById 会过滤出整串相等的这一行。
      */
     async function fetchGlobalRow(): Promise<api.ConsoleGroupRow | null> {
@@ -150,15 +240,47 @@ export default defineComponent({
       return findExactRow(result.rows, id) ?? null
     }
 
+    /** 列表页签要显示的群覆盖行：哨兵行已提升为「全局默认」页签，不再出现在列表里。 */
+    const groupRows = () => (list.value?.rows ?? []).filter(row => !row.sentinel)
+
+    /**
+     * 列表显示的总行数。服务端分页把哨兵行一并计入 total，但它已提升为「全局默认」页签，
+     * 不该影响群覆盖列表的计数与页码，所以命中时减掉 1。哨兵 `enabled` 恒为 true、id 是
+     * `*`，是否被当前查询计入可以只看缓存：不筛「已关闭」、且搜索词是 `*` 的子串时才命中。
+     * 另用当前页是否出现哨兵兜底（`*` 恒排第一页开头，缓存缺失时也能对上）。
+     */
+    const groupTotal = () => {
+      const search = query.search.trim().toLowerCase()
+      const sentinelInResults = (list.value?.rows.some(row => row.sentinel) ?? false)
+        || (!!globalRow
+          && query.filter !== 'disabled'
+          && (!search || globalRow.id.toLowerCase().includes(search)))
+      return Math.max(0, (list.value?.total ?? 0) - (sentinelInResults ? 1 : 0))
+    }
+
     async function refresh() {
       loading.value = true
       try {
-        list.value = await api.fetchGroups({ ...query })
-        // 保存/刷新后同步全局默认行缓存（列表第一页通常已带哨兵行，避免多余请求）
-        globalRow = list.value?.rows.find(row => row.sentinel) ?? globalRow
-      } catch (error) {
-        message.error('加载群覆盖列表失败：' + errorText(error))
-        list.value = null
+        // 列表与统计分别处理失败：统计 RPC 出错不该把已经拿到的列表一起清空
+        const [listResult, statsResult] = await Promise.allSettled([
+          api.fetchGroups({
+            search: query.search,
+            enabled: filterToEnabled(query.filter),
+            page: query.page,
+            pageSize: query.pageSize,
+          }),
+          api.fetchStats(),
+        ])
+        if (listResult.status === 'fulfilled') {
+          list.value = listResult.value
+          // 保存/刷新后同步全局默认行缓存（列表第一页通常已带哨兵行，避免多余请求）
+          globalRow = listResult.value.rows.find(row => row.sentinel) ?? globalRow
+        } else {
+          message.error('加载群覆盖列表失败：' + errorText(listResult.reason))
+          list.value = null
+        }
+        if (statsResult.status === 'fulfilled') stats.value = statsResult.value
+        else message.error('加载统计失败：' + errorText(statsResult.reason))
       } finally {
         loading.value = false
       }
@@ -185,8 +307,11 @@ export default defineComponent({
       for (const field of TEXT_FIELDS) delete errors[field.key]
     }
 
-    function loadDetail(row: api.ConsoleGroupRow) {
+    /** 载入一行到详情；只有真正切群（点行 / 新增 / 切页签）才把内部页签拨回「入群」。 */
+    function loadDetail(row: api.ConsoleGroupRow, resetTab = false) {
       selectedId.value = row.id
+      if (!row.sentinel) lastGroupId = row.id
+      if (resetTab) detailTab.value = 'welcome'
       resetForm(row, row.id)
     }
 
@@ -224,7 +349,40 @@ export default defineComponent({
     async function switchTo(row: api.ConsoleGroupRow) {
       if (row.id === selectedId.value) return
       if (!(await confirmLeave())) return
-      loadDetail(row)
+      loadDetail(row, true)
+    }
+
+    /** 切到「全局默认」页签：脏时先确认，再载入哨兵行。 */
+    async function openGlobalDetail() {
+      const row = globalRow ?? (await fetchGlobalRow())
+      if (row) {
+        loadDetail(row, true)
+      } else {
+        clearDetail()
+        message.warning('暂时读不到全局默认行，请点「刷新」重试。')
+      }
+    }
+
+    /** 切回「群覆盖」页签：恢复上次打开的群，找不到就留空。 */
+    function restoreGroupDetail() {
+      if (editing.value && !editing.value.sentinel) return
+      const row = lastGroupId ? list.value?.rows.find(item => item.id === lastGroupId) : undefined
+      if (row) loadDetail(row, true)
+      else clearDetail()
+    }
+
+    async function switchTab(tab: PanelTab) {
+      if (tab === activeTab.value) return
+      if (!(await confirmLeave())) return
+      activeTab.value = tab
+      if (tab === 'global') await openGlobalDetail()
+      else restoreGroupDetail()
+    }
+
+    function onFilterChange(filter: FilterMode) {
+      query.filter = filter
+      query.page = 1
+      void refresh()
     }
 
     /**
@@ -264,6 +422,7 @@ export default defineComponent({
       }
       if (!(await confirmLeave())) return
       selectedId.value = id
+      detailTab.value = 'welcome'
       resetForm(null, id)
     }
 
@@ -278,15 +437,21 @@ export default defineComponent({
       return !Object.keys(found).length
     }
 
-    /** 保存被键盘校验拦下时，展开所在分组、滚动并聚焦到第一个错误字段。 */
+    /** 错误字段所在的详情页签；找不到时退回「入群」。 */
+    function tabOfField(key: string): DetailTab {
+      const sentinel = editing.value?.sentinel ?? false
+      for (const tab of DETAIL_TABS) {
+        if (fieldsForTab(tab.key, sentinel).some(field => field.key === key)) return tab.key
+      }
+      return 'welcome'
+    }
+
+    /** 保存被键盘校验拦下时，切到所在页签、滚动并聚焦到第一个错误字段。 */
     async function focusFirstError() {
       const field = TEXT_FIELDS.find(item => item.keyboard && errors[item.key])
       if (!field) return
-      // 错误字段可能藏在折叠分组里：先把对应分组展开再定位
-      const group = FIELD_GROUPS.find(item => item.fields.some(item2 => 'key' in item2 && item2.key === field.key))
-      if (group && !expandedGroups.value.includes(group.title)) {
-        expandedGroups.value = [...expandedGroups.value, group.title]
-      }
+      // 错误字段可能藏在其它内部页签里：先把页签拨过去再定位
+      detailTab.value = tabOfField(field.key)
       await nextTick()
       const anchor = document.getElementById(`wm-field-${field.key}`)
       anchor?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -316,10 +481,11 @@ export default defineComponent({
         // 哨兵行是群行 placeholder 的继承来源，保存后立即刷新缓存
         if (state.editing.sentinel) void fetchGlobalRow()
         if (creating) {
-          // 新草稿首存：新行按 id 升序可能落在后面的分页里，用列表搜索定位它，
-          // 保证刷新后能在左侧列表看到并选中新行；搜索框同步显示该 OpenID
+          // 新草稿首存：新行按 id 升序可能落在后面的分页里，用搜索 + 清筛选定位它，
+          // 保证刷新后能在列表看到并选中新行；搜索框同步显示该 OpenID
           searchInput.value = state.editing.id
           query.search = state.editing.id
+          query.filter = 'all'
           query.page = 1
         }
         await refresh()
@@ -365,7 +531,10 @@ export default defineComponent({
       try {
         await api.deleteGroup(row.id)
         message.success('已删除群覆盖')
-        if (selectedId.value === row.id) clearDetail()
+        if (selectedId.value === row.id) {
+          clearDetail()
+          lastGroupId = null
+        }
         await refresh()
       } catch (error) {
         message.error('删除失败：' + errorText(error))
@@ -500,37 +669,36 @@ export default defineComponent({
       return renderTextField(field)
     }
 
-    const renderDetail = () => {
+    /** 详情卡：卡头（标识 + 状态标签 + 群行总开关）/ 三个内部页签 / 页脚（删除居左、保存居右）。 */
+    const renderDetailCard = () => {
       const current = editing.value
       if (!current) return null
       const dirty = detailDirty()
       return h(el('k-card'), { class: 'wm-detail-card' }, {
-        // 标题行去重：群行只显示群 OpenID（等宽 code），哨兵行只显示「全局默认」标签；
-        // 草稿与改动两个状态标签保留
         header: () => [
           current.sentinel
             ? h(el('el-tag'), { type: 'warning', size: 'small' }, () => '全局默认')
             : h('code', { class: 'wm-detail-id' }, current.id),
           editingRow.value ? null : h(el('el-tag'), { type: 'warning', size: 'small' }, () => '未保存草稿'),
           dirty ? h(el('el-tag'), { size: 'small' }, () => '有未保存改动') : null,
+          // 群行只有一个总开关，放卡头；哨兵的入群 / 离群开关各归对应内部页签
+          current.sentinel ? null : h('div', { style: 'flex:1' }),
+          current.sentinel ? null : h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+            h('span', { style: 'font-size:13px;color:var(--k-text-normal)' }, '本群通知开关'),
+            h(el('el-switch'), {
+              modelValue: current.enabled,
+              'onUpdate:modelValue': (value: boolean) => { current.enabled = value },
+            }),
+          ]),
         ],
-        default: () => h(el('el-form'), { labelPosition: 'top' }, () =>
-          // 四个可折叠分组：通知开关 / 入群 / 离群 / 开关回执，默认全部展开；
-          // 分组对齐与折叠线交给组件库，不再手写分隔线
-          h(el('el-collapse'), {
-            modelValue: expandedGroups.value,
-            'onUpdate:modelValue': (value: string[]) => { expandedGroups.value = value },
-          }, () => FIELD_GROUPS.map(group => h(el('el-collapse-item'), {
-            key: group.title,
-            title: group.title,
-            name: group.title,
-          }, () => {
-            // 群行只有一个总开关：开关分组显示总开关，哨兵行显示全局入群 / 离群开关
-            if (group.kind === 'switches' && !current.sentinel) {
-              return [renderSwitch('本群通知开关', current.enabled, value => { current.enabled = value })]
-            }
-            return group.fields.map(renderDetailField)
-          })))),
+        default: () => h(el('el-form'), { labelPosition: 'top' }, () => h(el('el-tabs'), {
+          modelValue: detailTab.value,
+          'onUpdate:modelValue': (value: DetailTab) => { detailTab.value = value },
+        }, () => DETAIL_TABS.map(tab => h(el('el-tab-pane'), {
+          key: tab.key,
+          label: tab.label,
+          name: tab.key,
+        }, () => fieldsForTab(tab.key, current.sentinel).map(renderDetailField))))),
         footer: () => [
           editingRow.value && !current.sentinel
             ? h(el('el-button'), {
@@ -539,8 +707,8 @@ export default defineComponent({
                 plain: true,
                 disabled: saving.value,
                 onClick: () => { void removeRow() },
-              }, () => '删除这条群覆盖')
-            : h('span'),
+              }, () => '删除群覆盖')
+            : null,
           h('div', { style: 'flex:1' }),
           h('span', { class: 'wm-detail-footer-hint' }, dirty ? '未保存的改动不会自动写入。' : '与列表数据一致。'),
           h(el('el-button'), {
@@ -554,61 +722,56 @@ export default defineComponent({
       })
     }
 
-    const renderListItem = (row: api.ConsoleGroupRow) => {
-      const selected = row.id === selectedId.value
-      // 哨兵行（全局默认）也可点击：详情的哨兵分支是全局默认内容的唯一编辑入口，
-      // 且 switchTo → loadDetail 是纯客户端切换，不产生任何写请求
-      return h('div', {
-        key: row.id,
-        style: `display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--k-color-divider);cursor:pointer;background:${selected ? 'var(--k-color-primary-fade)' : 'transparent'}`,
-        onClick: () => { void switchTo(row) },
-      }, [
-        h('div', { style: 'flex:1;min-width:0' }, [
-          h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
-            h('code', { style: 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.id),
-            row.sentinel ? h(el('el-tag'), { type: 'warning', size: 'small' }, () => '全局默认') : null,
-          ]),
-          h('div', {
-            style: 'font-size:12px;color:var(--k-text-light);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
-          }, row.updatedAt ? `更新于 ${formatTime(row.updatedAt)}` : undefined),
-          // 覆盖字段 chips：无覆盖时显示继承提示（内置默认 / 全部继承全局）
-          h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px' },
-            overrideChips(row).map(chip => h(el('el-tag'), {
-              key: chip.fieldKey || chip.text,
-              size: 'small',
-              type: 'info',
-              effect: 'plain',
-            }, () => chip.text))),
-        ]),
-        row.sentinel ? null : h(el('el-switch'), {
-          modelValue: row.enabled,
-          'onUpdate:modelValue': (value: boolean) => { void toggleEnabled(row, value) },
-          onClick: (event: Event) => event.stopPropagation(),
-        }),
-      ])
-    }
+    /** 详情栏：编辑态渲染详情卡，否则给一条空态提示（全局页签与群覆盖页签文案不同）。 */
+    const renderDetailPane = () => h('div', { style: detailPaneStyle }, [
+      editing.value
+        ? renderDetailCard()
+        : h(el('k-empty'), { style: 'flex:1' }, () => activeTab.value === 'global'
+            ? '暂时读不到全局默认行，请点「刷新」重试。'
+            : '从左侧选择一个群查看详情；点「新增群覆盖」可开始编辑草稿。'),
+    ])
 
-    const renderList = () => {
-      const rows = list.value?.rows ?? []
-      const total = list.value?.total ?? 0
-      return h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
-        h('div', { style: 'padding:8px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--k-color-divider)' }, [
-          h(el('el-input'), {
-            modelValue: searchInput.value,
-            'onUpdate:modelValue': (value: string) => { searchInput.value = value },
-            placeholder: '按群 OpenID 搜索',
-            clearable: true,
-            size: 'small',
-            style: 'flex:1',
-            onKeyup: (event: KeyboardEvent) => { if (event.key === 'Enter') applySearch() },
-            onClear: applySearch,
+    /** 左栏：el-table（群 OpenID / 覆盖摘要 / 行内开关 / 更新时间）；空态交给表格自带的单层空态。 */
+    const renderListPane = () => {
+      const rows = groupRows()
+      const total = groupTotal()
+      return h('div', { style: 'flex:1.4;min-width:280px;display:flex;flex-direction:column;gap:8px' }, [
+        h(el('el-table'), {
+          data: rows,
+          size: 'small',
+          rowKey: 'id',
+          highlightCurrentRow: true,
+          currentRowKey: selectedId.value ?? undefined,
+          emptyText: loading.value ? '加载中…' : '数据库里还没有群覆盖记录',
+          onRowClick: (row: api.ConsoleGroupRow) => { void switchTo(row) },
+          style: { width: '100%' },
+        }, () => [
+          h(el('el-table-column'), { label: '群 OpenID', minWidth: 150, showOverflowTooltip: true }, {
+            default: ({ row }: { row: api.ConsoleGroupRow }) => h('code', { style: 'font-size:13px' }, row.id),
           }),
-          h(el('el-button'), { size: 'small', onClick: applySearch }, () => '搜索'),
+          // 覆盖字段 chips：无覆盖时显示继承提示（哨兵行不进列表，这里都是群行）
+          h(el('el-table-column'), { label: '覆盖摘要', minWidth: 200 }, {
+            default: ({ row }: { row: api.ConsoleGroupRow }) =>
+              h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px' },
+                overrideChips(row).map(chip => h(el('el-tag'), {
+                  key: chip.fieldKey || chip.text,
+                  size: 'small',
+                  type: 'info',
+                  effect: 'plain',
+                }, () => chip.text))),
+          }),
+          h(el('el-table-column'), { label: '通知开关', width: 96, align: 'center' }, {
+            default: ({ row }: { row: api.ConsoleGroupRow }) => h(el('el-switch'), {
+              modelValue: row.enabled,
+              'onUpdate:modelValue': (value: boolean) => { void toggleEnabled(row, value) },
+              onClick: (event: Event) => event.stopPropagation(),
+            }),
+          }),
+          h(el('el-table-column'), { label: '更新时间', width: 180 }, {
+            default: ({ row }: { row: api.ConsoleGroupRow }) =>
+              h('span', { style: 'font-size:12px;color:var(--k-text-light)' }, formatTime(row.updatedAt)),
+          }),
         ]),
-        // 列表体：行容器用原生 overflow 滚动（外层 aside 由框架管理，不另套 el-scrollbar）
-        rows.length
-          ? h('div', { style: 'flex:1;overflow-y:auto' }, rows.map(renderListItem))
-          : h('div', { style: 'padding:24px 12px;text-align:center;color:var(--k-text-light);font-size:13px' }, loading.value ? '加载中…' : '数据库里还没有群覆盖记录'),
         total > query.pageSize
           ? h(el('el-pagination'), {
               layout: 'total, prev, pager, next',
@@ -616,47 +779,100 @@ export default defineComponent({
               total,
               currentPage: query.page,
               pageSize: query.pageSize,
-              style: 'margin:8px 0;justify-content:center',
+              style: { justifyContent: 'flex-end' },
               'onCurrentChange': (page: number) => { query.page = page; void refresh() },
             })
           : null,
       ])
     }
 
-    /**
-     * 详情列：内部滚动 + 编辑态/空态分支。
-     * k-layout 的 layout-main 是 overflow:hidden 的弹性容器，高度只能从 100% 收敛；
-     * el-scrollbar 在高度不可解析时不滚动，故以 height:100% 定高后由它接管滚动。
-     */
-    const renderDetailColumn = () => h(el('el-scrollbar'), { style: 'height:100%' }, () => h('div', {
-      style: 'min-height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding:0 16px 16px',
-    }, [
-      editing.value
-        ? renderDetail()
-        // k-empty 自带 height:100%，这里用 flex:1 把它撑到滚动视图剩余高度，居中才生效
-        : h(el('k-empty'), { style: 'flex:1' }, () =>
-            '从左侧选择一个群查看详情；点上方「新增群覆盖」填入群 OpenID 可开始编辑。'),
-    ]))
+    /** 顶部统计条：5 项取 stats RPC；全局两项可点击跳到「全局默认」页签。 */
+    const statItem = (label: string, value: string, color: string, onClick?: () => void) =>
+      h('div', {
+        class: 'wm-stat-item',
+        style: onClick ? 'cursor:pointer' : undefined,
+        onClick,
+      }, [
+        h('div', { class: 'wm-stat-value', style: `color:${color}` }, value),
+        h('div', { class: 'wm-stat-label' }, label),
+      ])
+
+    const renderStatsBar = () => {
+      const st = stats.value
+      const num = (value: number | undefined) => value === undefined ? '—' : String(value)
+      const toggle = (value: boolean | undefined) => value === undefined ? '—' : value ? '已开启' : '已关闭'
+      const toggleColor = (value: boolean | undefined) =>
+        value === false ? 'var(--k-color-warning)' : 'var(--k-color-success)'
+      const openGlobal = () => { void switchTab('global') }
+      const numColor = 'var(--k-text-dark)'
+      return h('div', { class: 'wm-stat-bar' }, [
+        statItem('群覆盖数', num(st?.total), numColor),
+        // 已开启 / 已关闭只统计数据库里已有的覆盖行：适配器无法枚举机器人所在的群
+        statItem('已开启（已有覆盖行）', num(st?.enabled), 'var(--k-color-success)'),
+        statItem('已关闭（已有覆盖行）', num(st?.disabled), 'var(--k-text-light)'),
+        statItem('全局入群通知', toggle(st?.welcomeEnabled), toggleColor(st?.welcomeEnabled), openGlobal),
+        statItem('全局离群通知', toggle(st?.leaveEnabled), toggleColor(st?.leaveEnabled), openGlobal),
+      ])
+    }
+
+    /** Tab 行：群覆盖 / 全局默认，右侧刷新。 */
+    const renderTabRow = () => h('div', { style: toolbarStyle }, [
+      h(el('el-radio-group'), {
+        modelValue: activeTab.value,
+        size: 'small',
+        'onUpdate:modelValue': (value: PanelTab) => { void switchTab(value) },
+      }, () => [
+        h(el('el-radio-button'), { value: 'groups' }, () => '群覆盖'),
+        h(el('el-radio-button'), { value: 'global' }, () => '全局默认'),
+      ]),
+      h('div', { style: 'flex:1' }),
+      h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
+    ])
+
+    /** 筛选行：全部 / 已开启 / 已关闭（走服务端 enabled）+ 搜索 + 新增 / 迁移。 */
+    const renderFilterRow = () => h('div', { style: toolbarStyle }, [
+      h(el('el-radio-group'), {
+        modelValue: query.filter,
+        size: 'small',
+        'onUpdate:modelValue': (value: FilterMode) => onFilterChange(value),
+      }, () => [
+        h(el('el-radio-button'), { value: 'all' }, () => '全部'),
+        h(el('el-radio-button'), { value: 'enabled' }, () => '已开启'),
+        h(el('el-radio-button'), { value: 'disabled' }, () => '已关闭'),
+      ]),
+      h(el('el-input'), {
+        modelValue: searchInput.value,
+        'onUpdate:modelValue': (value: string) => { searchInput.value = value },
+        placeholder: '按群 OpenID 搜索',
+        clearable: true,
+        size: 'small',
+        style: { width: '220px' },
+        onKeyup: (event: KeyboardEvent) => { if (event.key === 'Enter') applySearch() },
+        onClear: applySearch,
+      }),
+      h(el('el-button'), { size: 'small', onClick: applySearch }, () => '搜索'),
+      h('div', { style: 'flex:1' }),
+      h(el('el-button'), { size: 'small', type: 'primary', onClick: () => { void openCreate() }, loading: checking.value }, () => '新增群覆盖'),
+      h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
+    ])
 
     return () => {
-      return h(el('k-layout'), null, {
-        // 群覆盖列表：k-layout 原生左侧栏（框架样式），窄窗口下由框架切换为抽屉
-        left: () => renderList(),
-        default: () => h('div', { style: 'display:flex;flex-direction:column;height:100%' }, [
-          // 顶部说明：单行灰字（颜色走主题变量，暗色主题跟随）
-          h('div', { style: 'font-size:12px;color:var(--k-text-light);padding:10px 16px 0' },
-            '本页管理入群欢迎、离群通知与开关回执：群级状态存于数据库，内容字段可继承全局或逐项覆盖，不改写 koishi.yml。'),
-          // 全局操作工具行：保持在内容区顶部
-          h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px' }, [
-            h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
-            h('div', { style: 'flex:1' }),
-            h(el('el-button'), { size: 'small', type: 'primary', onClick: openCreate, loading: checking.value }, () => '新增群覆盖'),
-            h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
+      // k-layout 的 .layout-main 固定 overflow:hidden，页面必须自备滚动容器，
+      // 否则满页内容溢出部分会被直接裁掉（无法滚动）；底部也不会被状态栏压住。
+      return h(el('k-layout'), () => h('div', {
+        style: 'padding:16px;display:flex;flex-direction:column;gap:12px;height:100%;box-sizing:border-box;overflow-y:auto',
+      }, [
+        renderStatsBar(),
+        renderTabRow(),
+        h('div', { style: 'display:flex;flex-direction:column;gap:12px;flex:1;min-width:0' }, [
+          activeTab.value === 'groups' ? renderFilterRow() : null,
+          // 两栏：窄窗由 flex-wrap 纵向堆叠、列表在上；「全局默认」页签只有详情
+          h('div', { style: 'display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap' }, [
+            activeTab.value === 'groups' ? renderListPane() : null,
+            renderDetailPane(),
           ]),
-          // 详情列：编辑态/空态分支 + 内部滚动
-          renderDetailColumn(),
         ]),
-      })
+      ]))
     }
   },
 })

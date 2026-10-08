@@ -33,8 +33,13 @@ declare module '@koishijs/console' {
 /** 控制台 RPC 命名空间，统一用正确拼写（插件 id 的旧拼写保持不变）。 */
 export const CONSOLE_API_PREFIX = 'welcome-message-qq'
 
-/** 与 package.json 的 name 一致：包名里的拼写错误不在本次修正范围内。 */
-const PKG_NAME = 'koishi-plugin-welcome-messge-qq'
+/**
+ * node_modules 下的安装目录名。生产模式（devMode=false）下 @koishijs/plugin-console
+ * 的静态服务只放行路径含 node_modules 的文件；本插件经 workspace junction 被 Node
+ * realpath 到 external/ 下，__dirname 不含 node_modules，只有走这个链接路径才能通过。
+ * 从 package.json 的 name 推导，避免包名改动后这里再漂移（曾因包名拼写不一致导致 403）。
+ */
+const PKG_NAME: string = require('../package.json').name
 
 /**
  * 计算控制台客户端 entry 路径。
