@@ -38,7 +38,7 @@ const toolbarStyle = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap'
 const rowBoxStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;min-width:0;box-sizing:border-box'
 /** 画布的一行：按钮等分列宽、可收缩，行宽永远不超过详情栏。 */
 const canvasLineStyle = (count: number) => `display:grid;grid-template-columns:repeat(${count},minmax(0,1fr));gap:8px;align-items:start;min-width:0`
-const editCardStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--k-color-bg-2,transparent);width:min(560px,100%);min-width:0;max-width:100%;box-sizing:border-box'
+const editCardStyle = 'border:1px solid var(--k-color-divider);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--k-color-bg-2,transparent);width:100%;min-width:0;max-width:100%;box-sizing:border-box'
 const labelStyle = 'display:block;font-size:12px;font-weight:600;color:var(--k-text-dark);margin-bottom:2px'
 const gridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(150px,100%),1fr));gap:8px;min-width:0'
 const fullGridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:8px;min-width:0'
@@ -130,11 +130,14 @@ function parseTriState(value: string | undefined): boolean | undefined {
 }
 
 function buttonCanvasStyle(style: number | undefined, selected: boolean): string {
+  // QQ 定义了 0 / 1 / 3 / 4 四档；2 与其它未定义值都按 0 的灰色线框画。
   const palette = style === 1
-    ? 'background:var(--k-color-primary,#1677ff);color:#fff;border-color:transparent'
-    : style === 0
-      ? 'background:var(--k-color-bg-2,#f5f5f5);color:var(--k-text-dark);border-color:var(--k-color-divider)'
-      : 'background:var(--k-fill-light,rgba(127,127,127,.08));color:var(--k-text-dark);border-color:var(--k-color-divider)'
+    ? 'background:transparent;color:var(--k-color-primary,#1677ff);border:1px solid var(--k-color-primary,#1677ff)'
+    : style === 3
+      ? 'background:var(--k-card-bg,#fff);color:var(--k-color-danger);border:1px solid var(--k-color-danger-fade)'
+      : style === 4
+        ? 'background:var(--k-color-primary,#1677ff);color:#fff;border:1px solid transparent'
+        : 'background:transparent;color:var(--k-text-dark);border:1px solid var(--k-color-divider)'
   const outline = selected ? ';box-shadow:0 0 0 2px var(--k-color-primary,#1677ff)' : ''
   return `${palette};border-radius:6px;padding:7px 12px;cursor:pointer;min-height:34px;display:inline-flex;align-items:center;justify-content:center;font:inherit;width:100%;min-width:0;box-sizing:border-box;overflow:hidden${outline}`
 }

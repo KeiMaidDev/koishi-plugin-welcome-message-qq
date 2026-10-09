@@ -278,7 +278,7 @@ h('qq:rawmarkdown', {
 - `id`：可选的按钮标识；画布里留空时保存为 `行号-列号`（例如 `0-0`、`1-0`），避免 QQ 因缺少按钮 ID 拒绝或忽略键盘。
 - `render_data.label`：显示文字，不能为空。
 - `render_data.visited_label`：可选的点击后显示文字。
-- `render_data.style`：按钮样式数字，未填写时默认 `2`。
+- `render_data.style`：按钮样式数字，QQ 定义了 `0` 灰色线框、`1` 蓝色线框、`3` 白底红字、`4` 蓝底白字四种；未填写时插件默认 `2`。
 - `action.type`：QQ 原生动作类型；`0` 为跳转、`1` 为回调、`2` 为指令。插件不再过滤非 `2` 类型，未填写时为兼容旧配置默认 `2`。
 - `action.permission.type`：QQ 原生权限类型；`0` 为指定用户、`1` 为管理员、`2` 为所有人、`3` 为指定身份组。未填写时默认 `2`。
 - `action.permission.specify_user_ids` / `specify_role_ids`：指定用户或身份组 OpenID 数组；编辑卡里每行填一个。

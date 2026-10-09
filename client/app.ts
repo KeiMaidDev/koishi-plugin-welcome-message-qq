@@ -158,14 +158,11 @@ const fieldErrorStyle = 'display:block;font-size:12px;color:var(--k-color-danger
 /** 键盘 JSON 文本框等宽字体：用主题代码字体变量。 */
 const monoInputStyle = 'font-family:var(--font-family-code);font-size:12px;line-height:1.5'
 
-/** 三态下拉统一宽度：不再混排多种固定像素宽度。 */
-const selectStyle = 'width:120px'
-
 /** Tab 行 / 筛选行的通用外壳：同一行内对齐、窄窗自动换行。 */
 const toolbarStyle = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap'
 
 /** 详情栏最小宽度：两栏在窄窗下由此触发 flex-wrap 纵向堆叠。 */
-const detailPaneStyle = 'flex:1;min-width:280px;display:flex;flex-direction:column'
+const detailPaneStyle = 'flex:1.4;min-width:280px;display:flex;flex-direction:column'
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -599,18 +596,19 @@ export default defineComponent({
       return h(el('el-form-item'), { key: field.key, id: `wm-field-${field.key}` }, {
         label: () => renderFieldLabel(field.label),
         default: () => [
-          h(el('el-select'), {
+          // 三态 tab 栏：宽度随内容、左对齐，位于字段标签下方、输入框上方（issue #18）。
+          h(el('el-radio-group'), {
             modelValue: editor.mode,
             'onUpdate:modelValue': (value: ContentFieldMode) => {
               editor.mode = value
               if (field.keyboard) validateKeyboardFields()
             },
             size: 'small',
-            style: selectStyle,
+            style: 'margin-bottom:8px',
           }, () => [
-            h(el('el-option'), { value: 'inherit', label: editing.value?.sentinel ? '内置默认' : '继承全局' }),
-            h(el('el-option'), { value: 'override', label: '覆盖' }),
-            h(el('el-option'), { value: 'none', label: '置空' }),
+            h(el('el-radio-button'), { value: 'inherit' }, () => editing.value?.sentinel ? '内置默认' : '继承全局'),
+            h(el('el-radio-button'), { value: 'override' }, () => '覆盖'),
+            h(el('el-radio-button'), { value: 'none' }, () => '置空'),
           ]),
           editor.mode === 'override'
             ? field.keyboard
@@ -729,7 +727,7 @@ export default defineComponent({
     const renderListPane = () => {
       const rows = groupRows()
       const total = groupTotal()
-      return h('div', { style: 'flex:1.4;min-width:280px;display:flex;flex-direction:column;gap:8px' }, [
+      return h('div', { style: 'flex:1;min-width:280px;display:flex;flex-direction:column;gap:8px' }, [
         h(el('el-table'), {
           data: rows,
           size: 'small',
@@ -761,7 +759,7 @@ export default defineComponent({
               onClick: (event: Event) => event.stopPropagation(),
             }),
           }),
-          h(el('el-table-column'), { label: '更新时间', width: 180 }, {
+          h(el('el-table-column'), { label: '更新时间', width: 120 }, {
             default: ({ row }: { row: api.ConsoleGroupRow }) =>
               h('span', { style: 'font-size:12px;color:var(--k-text-light)' }, formatTime(row.updatedAt)),
           }),
