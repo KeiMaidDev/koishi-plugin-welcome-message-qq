@@ -93,15 +93,15 @@ function optionalSelect(
 }
 
 const PERMISSION_TYPE_ENTRIES = [
-  { value: '', label: '未填写' },
-  { value: '0', label: '0 指定用户' },
-  { value: '1', label: '1 管理员' },
-  { value: '2', label: '2 所有人' },
-  { value: '3', label: '3 指定身份组' },
+  { value: '', label: '留空' },
+  { value: '0', label: '指定用户' },
+  { value: '1', label: '管理员' },
+  { value: '2', label: '所有人' },
+  { value: '3', label: '指定身份组' },
 ]
 
 const TRI_STATE_ENTRIES = [
-  { value: '', label: '未填写（用默认）' },
+  { value: '', label: '留空' },
   { value: 'true', label: '是' },
   { value: 'false', label: '否' },
 ]
@@ -348,12 +348,12 @@ export const KeyboardEditor = defineComponent({
               push()
             },
           }, () => CALLBACK_MODE_ENTRIES.map(entry => h(el('el-radio-button'), { key: entry.value, value: entry.value }, () => entry.label)))),
-          field(callbackMode === 'command' ? 'action.data（指令）' : 'action.data（内容）',
+          field(callbackMode === 'command' ? '回调指令' : '回调内容',
             callbackMode === 'command'
               ? textControl(callbackContent, value => { button.action.data = withCallbackData(callbackMode, value); push() }, { placeholder: '/帮助菜单' })
               : textareaControl(callbackContent, value => { button.action.data = withCallbackData(callbackMode, value); push() }, 3, '支持 {userId}、{guildId} 等按钮变量')),
         ])
-        : field(kind === 'link' ? 'action.data（链接）' : 'action.data（指令）',
+        : field(kind === 'link' ? '链接地址' : '执行指令',
           textareaControl(button.action.data ?? '', value => { button.action.data = value; push() }, 2,
             kind === 'link' ? 'https://example.com' : '/帮助菜单'))
 
@@ -361,11 +361,11 @@ export const KeyboardEditor = defineComponent({
         || Boolean(button.action.permission.specifyUserIds)
         || Boolean(button.action.permission.specifyRoleIds)
         ? h('div', { style: fullGridStyle }, [
-          field('action.permission.specify_user_ids（每行一个）', textareaControl(
+          field('指定用户 ID（每行一个）', textareaControl(
             button.action.permission.specifyUserIds,
             value => { button.action.permission.specifyUserIds = value; push() },
           )),
-          field('action.permission.specify_role_ids（每行一个）', textareaControl(
+          field('指定身份组 ID（每行一个）', textareaControl(
             button.action.permission.specifyRoleIds,
             value => { button.action.permission.specifyRoleIds = value; push() },
           )),
@@ -375,14 +375,14 @@ export const KeyboardEditor = defineComponent({
       const advanced = h('details', { style: 'margin-top:4px' }, [
         h('summary', { style: `${smallLabelStyle};cursor:pointer` }, kept ? `高级（保留 ${kept} 个未暴露字段）` : '高级'),
         h('div', { style: `${gridStyle};margin-top:8px` }, [
-          field('action.anchor', numberControl(button.action.anchor, value => { button.action.anchor = value; push() })),
-          field('action.click_limit', numberControl(button.action.clickLimit, value => { button.action.clickLimit = value; push() })),
-          field('action.at_bot_show_channel_list', optionalSelect(
+          field('跳转锚点', numberControl(button.action.anchor, value => { button.action.anchor = value; push() })),
+          field('点击次数上限', numberControl(button.action.clickLimit, value => { button.action.clickLimit = value; push() })),
+          field('点击后显示频道列表', optionalSelect(
             triStateValue(button.action.atBotShowChannelList),
             TRI_STATE_ENTRIES,
             value => { button.action.atBotShowChannelList = parseTriState(value); push() },
           )),
-          field('action.unsupport_tips', textControl(button.action.unsupportTips, value => { button.action.unsupportTips = value; push() })),
+          field('不支持时的提示', textControl(button.action.unsupportTips, value => { button.action.unsupportTips = value; push() })),
         ]),
         kept ? h('div', { style: `${hintStyle};margin-top:6px` }, '表单没暴露的键会在保存与往返中原样保留。') : null,
       ])
@@ -396,10 +396,10 @@ export const KeyboardEditor = defineComponent({
           iconButton('删除', '删除按钮', false, () => removeButton(rowIndex, buttonIndex)),
         ]),
         h('div', { style: gridStyle }, [
-          field('id（留空用 行-列）', textControl(button.id, value => { button.id = value; push() }, { placeholder: `${rowIndex}-${buttonIndex}` })),
-          field('render_data.label', textControl(button.renderData.label ?? '', value => { button.renderData.label = value; push() })),
-          field('render_data.visited_label', textControl(button.renderData.visitedLabel, value => { button.renderData.visitedLabel = value; push() })),
-          field('render_data.style', numberControl(button.renderData.style, value => { button.renderData.style = value; push() })),
+          field('按钮 ID', textControl(button.id, value => { button.id = value; push() }, { placeholder: `${rowIndex}-${buttonIndex}` })),
+          field('按钮文字', textControl(button.renderData.label ?? '', value => { button.renderData.label = value; push() })),
+          field('点击后文字', textControl(button.renderData.visitedLabel, value => { button.renderData.visitedLabel = value; push() })),
+          field('按钮样式', numberControl(button.renderData.style, value => { button.renderData.style = value; push() })),
         ]),
         field('按钮类型', h(el('el-radio-group'), {
           modelValue: kind,
@@ -410,17 +410,17 @@ export const KeyboardEditor = defineComponent({
           },
         }, () => BUTTON_KIND_ENTRIES.map(entry => h(el('el-radio-button'), { key: entry.value, value: entry.value }, () => entry.label)))),
         h('div', { style: gridStyle }, [
-          field('action.permission.type', optionalSelect(
+          field('可见范围', optionalSelect(
             permissionType === undefined ? undefined : String(permissionType),
             PERMISSION_TYPE_ENTRIES,
             value => { button.action.permission.type = value === undefined ? undefined : Number(value); push() },
           )),
-          field('action.enter', optionalSelect(
+          field('点击后发送（仅私聊）', optionalSelect(
             triStateValue(button.action.enter),
             TRI_STATE_ENTRIES,
             value => { button.action.enter = parseTriState(value); push() },
           )),
-          field('action.reply', optionalSelect(
+          field('点击后回复', optionalSelect(
             triStateValue(button.action.reply),
             TRI_STATE_ENTRIES,
             value => { button.action.reply = parseTriState(value); push() },
