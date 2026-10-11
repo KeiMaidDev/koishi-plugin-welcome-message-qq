@@ -1,26 +1,68 @@
-# koishi-plugin-welcome-messge-qq
+# koishi-plugin-welcome-message-qq
 
-面向 QQ 群的 Koishi 入群欢迎与离群通知插件。插件监听标准 `guild-member-added` / `guild-member-removed` 事件，文案与开关回执一律按 QQ 原生 Markdown 发送，并与正文同一条发送 QQ 原生按钮。
+[![npm](https://img.shields.io/npm/v/koishi-plugin-welcome-message-qq?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-welcome-message-qq)
 
-> 插件名中的 `messge` 为当前包名的一部分：`koishi-plugin-welcome-messge-qq`。
+> [!NOTE]
+> 本项目由各种 AI 工具开发，存在一定的问题，见谅，如有更好的实现欢迎 PR<br>
+> 有好的提议欢迎提 ISSUE！
 
-## 前置条件
+面向 QQ 群的 Koishi 入群欢迎与离群通知插件。成员加入或离开群时，插件按群配置发送 QQ 原生 Markdown 消息，并可附带命令按钮、链接按钮或回调按钮；群级状态保存在数据库里，通过控制台「入群欢迎管理」页维护。
 
-- Koishi 4.18.7 或兼容版本，并已启用 `database` 服务。
-- 必须使用能够上报 QQ 群成员事件的 `adapter-qq-crack`。
-- 适配器和机器人应用必须实际具备接收群成员增加、离开事件的权限。
-- 群标识一律填写 **QQ 群 OpenID**，不是普通 QQ 群号。群级覆盖与全局默认值都存放在数据库里，控制台侧栏的「入群欢迎管理」页是唯一入口。
+> 包名与仓库名是 `welcome-message-qq`；插件内部注册名与指令命名空间沿用历史拼写 `welcome-messge-qq`（少一个 a）。文档里出现的 `welcome-messge-qq:` 前缀与 `/welcome-messge-qq.close` 都是实际生效的标识，请勿改写。
 
-插件只消费适配器提供的标准 Koishi 事件，不解析 QQ WebSocket 原始数据，也不监听普通聊天消息。除用于开启/关闭当前群通知的管理指令外，仅监听带 `welcome-messge-qq:` 命名空间的 `interaction/button` 回调；其他插件的回调不会被接管。
+## 功能
 
-## 启用方式
+- 监听 `guild-member-added` 与 `guild-member-removed`，分别发送欢迎消息与中性离群消息。
+- 文案、键盘与开关按「群覆盖 → 全局默认 → 内置默认」逐字段生效，群覆盖字段可选继承、覆盖或显式置空。
+- 消息一律按 QQ 原生 Markdown 发送，模板里的 Markdown 结构原样保留，只有变量替换出的动态值会被转义。
+- 支持 `{at}`、`{username}`、`{guildName}`、`{time}` 等模板变量，并区分加入与离开事件。
+- 键盘编辑器提供键盘画布与源码视图，两者双向同步；按钮支持指令、链接、回调三种动作类型，并透传权限、样式等 QQ 原生字段。
+- 回调按钮可用 `welcome-messge-qq:reply:` 回复文本，或用 `welcome-messge-qq:command:` 执行 Koishi 指令。
+- 群内可用 `/关闭欢迎`、`/开启欢迎` 关闭或恢复当前群的入退群消息，状态写入数据库并长期生效。
+- 控制台「入群欢迎管理」页按群 OpenID 搜索、编辑、删除覆盖行，并支持从旧配置 `groups` 一次性迁移。
 
-1. 在 Koishi 控制台安装并启用 `adapter-qq-crack`，确认 QQ 机器人已上线。
-2. 在源码工作区修改本插件后，执行 `yarn yakumo esbuild welcome-messge-qq`，确保 `lib/index.js` 已生成；`package.json` 的运行时入口是该文件。
-3. 添加并启用 `koishi-plugin-welcome-messge-qq`。首次启动时，下面的全局配置会被写成数据库里的全局默认行（`id` 为 `*`）；此后数据库是唯一事实来源，插件不再回写配置文件。
-4. 先使用默认的 `scope: all` 在测试群验证事件；需要白名单时再改成 `configured`，然后到控制台「入群欢迎管理」页为指定群新建覆盖行。
-5. 从旧版配置升级时，在「入群欢迎管理」页点击「迁移旧配置」，先看试算出的「将覆盖 / 新建」行数，再确认写入；确认无误后可以从 `koishi.yml` 删掉 `groups`。
-6. `action.type: 2` 是 QQ 指令按钮；`action.type: 1` 回调按钮可使用 `welcome-messge-qq:reply:` 回复文本，或使用 `welcome-messge-qq:command:` 执行 Koishi 指令。
+## 安装
+
+在 Koishi 控制台的插件市场中搜索并安装：
+
+```text
+welcome-message-qq
+```
+
+## 运行要求
+
+- Node.js 18 或更高版本。
+- Koishi 4.18.7 或兼容版本，并已启用 `database` 服务（例如 `koishi-plugin-database-sqlite`）；缺少数据库插件时本插件不会加载。
+-  需使用[adapter-qq-crack](https://github.com/koishi-shangxue-plugins/koishi-plugin-adapter-qq-crack)。
+- 适配器需开启接收群成员增加、离开事件的权限。
+- 需要 `@koishijs/plugin-console` 才能使用「入群欢迎管理」页；没有控制台时插件仍可运行，但只能依赖默认配置或手动修改数据库。
+
+群标识需填写 **QQ 群 OpenID**，而非普通 QQ 群号。
+
+> [!WARNING]
+> 插件只消费适配器提供的标准 Koishi 事件，不解析 QQ WebSocket 原始数据，也不监听普通聊天消息。除开启/关闭当前群通知的管理指令外，仅监听带 `welcome-messge-qq:` 命名空间的 `interaction/button` 回调；其他插件的回调不会被接管。
+
+## 快速开始
+
+1. 在控制台安装并启用 `adapter-qq-crack`，确认 QQ 机器人已上线。
+2. 添加并启用 `welcome-message-qq`。首次启动时，全局配置会被写成数据库里的全局默认行（`id` 为 `*`）；此后数据库是唯一事实来源，插件不再回写配置文件。
+3. 先使用默认的 `scope: all` 在测试群验证事件；需要白名单时再改成 `configured`，然后到控制台「入群欢迎管理」页为指定群新建覆盖行。
+4. 在「入群欢迎管理」页调整全局默认或群覆盖的文案、键盘与开关。
+~~5. 从旧版配置升级时，在页面点击「迁移旧配置」，先看试算出的「将覆盖 / 新建」行数，再确认写入；确认无误后可以从 `koishi.yml` 删掉 `groups`。~~
+
+## 常用命令
+
+| 场景 | 命令示例 |
+| --- | --- |
+| 关闭当前群通知 | `/welcome-messge-qq.close`、`/关闭入退群消息`、`/关闭欢迎` |
+| 开启当前群通知 | `/welcome-messge-qq.enable`、`/开启入退群消息`、`/开启欢迎` |
+
+- 指令只能在 QQ 群聊中使用，私聊或其他平台不会生效。
+- 开启与关闭默认都需要 Koishi 权限等级 `1`，可通过 `closeCommandAuthority` 统一调整。
+- 一个开关同时管入群与离群两类消息。
+- `scope: configured` 下对没有覆盖行的群执行关闭指令不会新建行（该群本来就不发送），指令直接回复当前状态。
+- 重复开启或重复关闭会直接回复当前状态，不重复写库。
+- 关闭成功后回执默认提供「重新开启」按钮，开启成功后默认提供「再次关闭」按钮，正文与键盘都可以在页面上自定义。
 
 ## 支持的事件
 
@@ -29,146 +71,40 @@
 | 成员加入群聊 | `guild-member-added` | 发送欢迎消息 |
 | 成员离开群聊 | `guild-member-removed` | 发送中性离群消息 |
 
-插件不处理 `guild-member-updated`。由于适配器可能不提供 `operatorId`，离群通知不会推断“主动退出”或“被管理员移出”。
+插件不处理 `guild-member-updated`。由于qq开放平台限制，离群通知在未开启主动消息的情况无法发送。
 
 ## 全局配置
 
-下表分两部分。`scope`、`ignoreBots`、`timeZone`、`closeCommandAuthority` 每次启动都从配置文件读取；标了「仅初始化」的内容字段只在数据库里还没有全局默认行（`id = *`）时用来创建那一行，之后一律以数据库为准。
+`scope`（生效范围）、`ignoreBots`（忽略机器人）、`timeZone`（时区）、`closeCommandAuthority`（开关指令权限等级）每次启动都从配置文件读取；标了「仅初始化」的内容字段只在数据库里还没有全局默认行（`id = *`）时用来创建那一行，之后一律以数据库为准。
 
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `scope` | 单选 | 全部 QQ 群（推荐） | “全部 QQ 群”会在机器人所在的所有群启用；“仅指定的 QQ 群”只处理数据库里存在覆盖行的群 |
-| `ignoreBots` | `boolean` | `true` | 忽略机器人自身及标记为机器人的成员事件 |
-| `timeZone` | `string` | `Asia/Shanghai` | `{time}`、`{date}`、`{clock}` 使用的 IANA 时区；非法值无法通过 Schema，运行时也会回退并告警 |
-| `closeCommandAuthority` | `number` | `1` | 开启/关闭当前群通知指令所需的 Koishi 权限等级 |
-| `welcomeEnabled`（仅初始化） | `boolean` | `true` | 是否发送入群欢迎消息（仅全局默认行） |
-| `welcomeMessage`（仅初始化） | `string` | `欢迎 {at} 加入群聊！` | 欢迎消息模板，支持多行 |
-| `leaveEnabled`（仅初始化） | `boolean` | `true` | 是否发送离群消息（仅全局默认行） |
-| `leaveMessage`（仅初始化） | `string` | `{at} 已离开群聊。` | 中性的离群消息模板，支持多行 |
-| `closeResponseMessage`（仅初始化） | `string` | Markdown 关闭提示 | 默认提示已关闭，并引导点击“重新开启” |
-| `closeResponseKeyboard`（仅初始化） | `string(JSON)` | 内置“重新开启”按钮 | 关闭成功后的自定义 QQ 键盘 |
-| `enableResponseMessage`（仅初始化） | `string` | Markdown 开启提示 | 默认提示已开启，并引导点击“再次关闭” |
-| `enableResponseKeyboard`（仅初始化） | `string(JSON)` | 内置“再次关闭”按钮 | 开启成功后的自定义 QQ 键盘 |
-| `welcomeKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎”按钮 | 填写欢迎消息专用 QQ 键盘 JSON |
-| `leaveKeyboard`（仅初始化） | `string(JSON)` | 内置“关闭欢迎 + 帮助菜单”按钮 | 填写离群消息专用 QQ 键盘 JSON |
-| `groups` | `GroupConfig[]` | `[]` | 已弃用；不再显示在插件配置页，只在「迁移旧配置」时读取，见下文 |
+| 配置项 | 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| 生效范围 | `scope` | 单选 | 全部 QQ 群（推荐） | “全部 QQ 群”会在机器人所在的所有群启用；“仅指定的 QQ 群”只处理数据库里存在覆盖行的群 |
+| 忽略机器人 | `ignoreBots` | `boolean` | `true` | 忽略机器人自身及标记为机器人的成员事件 |
+| 时区 | `timeZone` | `string` | `Asia/Shanghai` | `{time}`、`{date}`、`{clock}` 使用的 IANA 时区；非法值无法通过 Schema，运行时也会回退并告警 |
+| 开关指令权限等级 | `closeCommandAuthority` | `number` | `1` | 开启/关闭当前群通知指令所需的 Koishi 权限等级 |
+| 入群欢迎开关（仅初始化） | `welcomeEnabled` | `boolean` | `true` | 是否发送入群欢迎消息（仅全局默认行） |
+| 欢迎消息（仅初始化） | `welcomeMessage` | `string` | `欢迎 {at} 加入群聊！` | 欢迎消息模板，支持多行 |
+| 离群通知开关（仅初始化） | `leaveEnabled` | `boolean` | `true` | 是否发送离群消息（仅全局默认行） |
+| 离群消息（仅初始化） | `leaveMessage` | `string` | `{at} 已离开群聊。` | 中性的离群消息模板，支持多行 |
+| 关闭回执文案（仅初始化） | `closeResponseMessage` | `string` | Markdown 关闭提示 | 默认提示已关闭，并引导点击“重新开启” |
+| 关闭回执键盘（仅初始化） | `closeResponseKeyboard` | `string(JSON)` | 内置“重新开启”按钮 | 关闭成功后的自定义 QQ 键盘 |
+| 开启回执文案（仅初始化） | `enableResponseMessage` | `string` | Markdown 开启提示 | 默认提示已开启，并引导点击“再次关闭” |
+| 开启回执键盘（仅初始化） | `enableResponseKeyboard` | `string(JSON)` | 内置“再次关闭”按钮 | 开启成功后的自定义 QQ 键盘 |
+| 欢迎键盘（仅初始化） | `welcomeKeyboard` | `string(JSON)` | 内置“关闭欢迎”按钮 | 填写欢迎消息专用 QQ 键盘 JSON |
+| 离群键盘（仅初始化） | `leaveKeyboard` | `string(JSON)` | 内置“关闭欢迎 + 帮助菜单”按钮 | 填写离群消息专用 QQ 键盘 JSON |
+| 群配置（已弃用） | `groups` | `GroupConfig[]` | `[]` | 已弃用；不再显示在插件配置页，只在「迁移旧配置」时读取，见下文 |
 
 ### 生效范围与优先级
 
-状态只有一张表：`id = *` 的行是全局默认值，其余每行是一个群的覆盖。解析顺序固定为 **群覆盖行 > 全局默认行 > 内置默认值**。
+状态只有一张表：`id = *` 的行是全局默认值，其余每行是一个群的覆盖。解析顺序固定为 **群覆盖行 → 全局默认行 → 内置默认值**。
 
 - 内容字段是三态的：行里没有该字段或为 `NULL` 表示继承；空字符串表示显式置空（该消息不发）；有值则覆盖。
-- 文案与回执一律按 QQ Markdown 发送：模板里的 Markdown 结构原样保留，只有模板变量替换出的动态值会被转义。不存在「普通文本 / Markdown」格式开关，也没有纯文本快路径。
 - `scope: all`：没有覆盖行的 QQ 群使用全局默认行。
 - `scope: configured`：只有数据库里存在覆盖行的群参与发送。
 - 覆盖行上的 `enabled: false`：无论全局配置如何，该群的欢迎与离群消息都不发送。
 - 群覆盖行不区分入群与离群，只有一个总开关；`welcomeEnabled` / `leaveEnabled` 只在全局默认行上生效。
 - 全局默认行不能被删除，它的 `enabled` 恒为开启。
-
-## 开启/关闭当前群通知指令
-
-关闭当前群的等价指令：
-
-```text
-/welcome-messge-qq.close
-/关闭入退群消息
-/关闭欢迎
-```
-
-开启当前群的等价指令：
-
-```text
-/welcome-messge-qq.enable
-/开启入退群消息
-/开启欢迎
-```
-
-关闭指令会把当前群的覆盖行写成 `enabled: false`；开启指令把该行改成 `enabled: true`。状态保存在数据库里，重启后依然生效，且只影响当前群。
-
-- 指令只能在 QQ 群聊中使用，私聊或其他平台不会生效。
-- 开启与关闭默认都需要 Koishi 权限等级 `1`，可通过 `closeCommandAuthority` 统一调整。
-- `scope: configured` 下对没有覆盖行的群执行关闭指令不会新建行（该群本来就不发送），指令直接回复当前状态。
-- 已关闭的群优先使用 `/开启入退群消息` 恢复；也可在控制台「入群欢迎管理」页把该行的开关改回开启。
-- 重复开启或重复关闭会直接回复当前状态，不重复写库。
-- 数据库读取失败时回复“无法读取本群的通知状态”，写入失败时回复“保存失败”，两种情况都不会改动任何数据。
-- 此功能通过标准 Koishi 指令实现，不使用普通消息监听器或中间件。
-- 按钮中可把 `action.data` 设置为 `/关闭入退群消息` 或 `/开启入退群消息`，权限校验仍由对应 Koishi 指令处理。
-
-关闭和开启成功后的回复可以分别自定义正文与键盘。只要响应键盘中至少有一个有效按钮，插件会返回单个 `qq:rawmarkdown`，正文位于 `markdown.content`，按钮位于 `keyboard.content.rows`。
-
-例如，关闭后显示 Markdown 并提供“重新开启”按钮：
-
-```yaml
-closeResponseMessage: |-
-  # 已关闭本群入退群通知
-  > 点击下方按钮可以重新开启。
-closeResponseKeyboard: |-
-  {
-    "rows": [
-      {
-        "buttons": [
-          {
-            "render_data": {
-              "label": "重新开启",
-              "style": 1
-            },
-            "action": {
-              "type": 1,
-              "permission": {
-                "type": 1
-              },
-              "data": "welcome-messge-qq:command:/开启欢迎"
-            }
-          }
-        ]
-      }
-    ]
-  }
-```
-
-`enableResponseMessage` 与 `enableResponseKeyboard` 使用相同结构，可在开启成功后提供“再次关闭”按钮。正文和按钮数据支持 `{userId}`、`{username}`、`{guildId}`、`{guildName}`、`{time}`、`{event}`、`{eventType}` 等固定模板字段；关闭时 `{eventType}` 为 `close`，开启时为 `enable`。
-
-## 入群欢迎管理页
-
-控制台侧栏的「入群欢迎管理」页（`/welcome-message-qq`，需要权限等级 `4`）直接读写数据库里的覆盖行，整页分「群覆盖」与「全局默认」两个 Tab。
-
-- 顶部统计条给出群覆盖数、已开启 / 已关闭的群数与全局的入群 / 离群开关状态。注意「已开启 / 已关闭」只统计数据库里已有的覆盖行：适配器无法枚举机器人所在的群，按 `scope: all` 默认开启、又没有覆盖行的群不计入。
-- 「群覆盖」Tab 按群 OpenID 升序分页，支持按 OpenID 片段搜索，以及「全部 / 已开启 / 已关闭」筛选；表格列有群 OpenID、覆盖摘要、通知开关与更新时间，开关可以在行内直接切换。
-- 「全局默认」Tab 编辑对所有群生效的那份设置，包括全局入群 / 离群开关。
-- 「新增群覆盖」弹出小输入框收集群 OpenID，确认后右侧进入未保存草稿，首次保存才写入数据库；填了已存在的 OpenID 会提示直接编辑该行，放弃草稿不产生任何写入。
-- 详情区按「入群 / 离群 / 开关回执」分 Tab，可逐字段设置 `welcomeMessage`、`leaveMessage`、`welcomeKeyboard`、`leaveKeyboard`、`closeResponseMessage`、`closeResponseKeyboard`、`enableResponseMessage`、`enableResponseKeyboard` 八个内容字段，以及群行总开关；每个字段可选「继承 / 覆盖 / 置空」——继承取全局默认（全局默认行取内置默认），覆盖用该群自己的值，置空表示这条消息不发或这份键盘不显示按钮。
-- 编辑时只写改动过的字段，不会把该群其它已有内容清空。
-- 删除群行后该群回到继承状态；全局默认行不能删除，它的总开关恒为开启，只有它上面的欢迎/离群开关（`welcomeEnabled` / `leaveEnabled`）可以单独调整。
-- 「迁移旧配置」把 `koishi.yml` 里 `groups` 的显式字段单向写入数据库，先给出「将覆盖 N 行 / 新建 N 行」的试算结果，确认后才真正写入。迁移不会删除任何已有行，也不会回写配置文件；配置里没写下的字段保持数据库原值。
-
-### 旧配置的 `groups`（已弃用）
-
-`groups` 现在只被上面的「迁移旧配置」读取，插件运行时不再看它：
-
-| 字段 | 是否必填 | 说明 |
-| --- | --- | --- |
-| `guildId` | 是 | QQ 群 OpenID，唯一匹配键，不是普通群号 |
-| `enabled` | 否 | 设为 `false` 时完全禁用该群；未填写时不改动数据库里已有的开关，新建的行默认开启 |
-| `welcomeMessage` | 否 | 覆盖欢迎模板；显式空白会跳过欢迎消息 |
-| `welcomeKeyboard` | 否 | JSON 字符串；留空继承全局欢迎键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
-| `leaveMessage` | 否 | 覆盖离群模板；显式空白会跳过离群消息 |
-| `leaveKeyboard` | 否 | JSON 字符串；留空继承全局离群键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
-| `welcomeEnabled`、`leaveEnabled` | 否 | 不会迁移：新模型里群行只有一个总开关，请迁移后到页面上按需调整 |
-| `messageFormat` | 否 | 不会迁移：格式配置已删除，文案与回执固定按 QQ Markdown 发送 |
-
-重复填写同一个 `guildId` 时以最后一项为准。示例：
-
-```yaml
-scope: configured
-groups:
-  - guildId: QQ_GROUP_OPENID_A
-    enabled: true
-    welcomeMessage: |-
-      欢迎 {at}！
-      加入时间：{time}
-  - guildId: QQ_GROUP_OPENID_B
-    enabled: true
-```
 
 ## 模板变量
 
@@ -195,9 +131,10 @@ groups:
 
 ## 消息示例
 
-### 1. 不用排版，无按钮
+### 不用排版，无按钮
 
 ```yaml
+# 欢迎消息
 welcomeMessage: |-
   欢迎新成员 {username}！
   加入时间：{time}
@@ -205,9 +142,10 @@ welcomeMessage: |-
 
 模板一律按 QQ Markdown 渲染，上面这种没有 Markdown 结构的写法照常显示为普通文字。
 
-### 2. 用 Markdown 排版，无按钮
+### 用 Markdown 排版，无按钮
 
 ```yaml
+# 欢迎消息
 welcomeMessage: |-
   # 欢迎 {at}
   > 加入时间：{time}
@@ -215,15 +153,17 @@ welcomeMessage: |-
 
 无有效按钮时，插件使用 `h('markdown', rendered)` 发送 QQ 原生 Markdown，正文放在元素子节点中。
 
-### 3. Raw Markdown 与下挂原生按钮
+### Raw Markdown 与下挂原生按钮
 
 下面是一个包含 `{at}`、`{time}` 和 `action.type: 2` 指令按钮的完整欢迎配置：
 
 ```yaml
+# 欢迎消息
 welcomeMessage: |-
   # 欢迎 {at}
   > 用户：{username}
   > 入群时间：{time}
+# 欢迎消息的下挂按钮键盘
 welcomeKeyboard: |-
   {
     "rows": [
@@ -265,9 +205,8 @@ h('qq:rawmarkdown', {
 })
 ```
 
-正文和按钮位于同一个 `qq:rawmarkdown` 元素中，不设置 `stream`，不会额外发送 `qq:button`、`h('button')` 或第二条键盘消息。
 
-## 按钮结构
+## 键盘编辑
 
 欢迎与离群按钮分别由 `welcomeKeyboard`、`leaveKeyboard` 管理，两份开关回执键盘由 `closeResponseKeyboard`、`enableResponseKeyboard` 管理。控制台里这四个字段用 **键盘画布 + 源码视图**编辑：画布按消息在 QQ 群里的行和按钮布局展示，按钮文字取显示文字、按 `render_data.style` 着色；点中按钮会在它下方展开编辑卡。源码视图直接编辑 JSON。两边共用同一份数据：画布改动即时反映到源码，源码里的合法 JSON 也会同步回画布；非法 JSON 会保留原文并给出错误，不破坏画布状态。插件在每次事件中独立解析并创建发送对象，不会共享或串改配置。
 
@@ -338,7 +277,55 @@ h('qq:rawmarkdown', {
 `command:` 后可以带或不带开头的 `/`。插件会以点击按钮的用户和群聊会话执行命令，因此 Koishi 的指令权限检查仍然生效。命令必须是单行文本。
 
 回调数据中仍可使用 `{userId}`、`{guildId}`、`{username}`、`{eventType}` 等按钮模板变量，它们会在欢迎消息生成时替换。不要为其他插件的回调使用 `welcome-messge-qq:` 前缀。
+
 不同 QQ 客户端对 Markdown 换行、按钮宽度和样式的显示可能不同，建议至少在手机 QQ 与 Windows QQ 各验证一次。
+
+## 入群欢迎管理页
+
+控制台侧栏的「入群欢迎管理」页（`/welcome-message-qq`，需要权限等级 `4`）直接读写数据库里的覆盖行，整页分「群覆盖」与「全局默认」两个 Tab。
+
+- 顶部统计条给出群覆盖数、已开启 / 已关闭的群数与全局的入群 / 离群开关状态。注意「已开启 / 已关闭」只统计数据库里已有的覆盖行：适配器无法枚举机器人所在的群，按 `scope: all` 默认开启、又没有覆盖行的群不计入。
+- 「群覆盖」Tab 按群 OpenID 升序分页，支持按 OpenID 片段搜索，以及「全部 / 已开启 / 已关闭」筛选；表格列有群 OpenID、覆盖摘要、通知开关与更新时间，开关可以在行内直接切换。
+- 「全局默认」Tab 编辑对所有群生效的那份设置，包括全局入群 / 离群开关。
+- 「新增群覆盖」弹出小输入框收集群 OpenID，确认后右侧进入未保存草稿，首次保存才写入数据库；填了已存在的 OpenID 会提示直接编辑该行，放弃草稿不产生任何写入。
+- 详情区按「入群 / 离群 / 开关回执」分 Tab，可逐字段设置 `welcomeMessage`、`leaveMessage`、`welcomeKeyboard`、`leaveKeyboard`、`closeResponseMessage`、`closeResponseKeyboard`、`enableResponseMessage`、`enableResponseKeyboard` 八个内容字段，以及群行总开关；每个字段可选「继承 / 覆盖 / 置空」——继承取全局默认（全局默认行取内置默认），覆盖用该群自己的值，置空表示这条消息不发或这份键盘不显示按钮。
+- 编辑时只写改动过的字段，不会把该群其它已有内容清空。
+- 删除群行后该群回到继承状态；全局默认行不能删除，它的总开关恒为开启，只有它上面的欢迎/离群开关（`welcomeEnabled` / `leaveEnabled`）可以单独调整。
+- 「迁移旧配置」把 `koishi.yml` 里 `groups` 的显式字段单向写入数据库，先给出「将覆盖 N 行 / 新建 N 行」的试算结果，确认后才真正写入。迁移不会删除任何已有行，也不会回写配置文件；配置里没写下的字段保持数据库原值。
+
+### 旧配置的 `groups`（已弃用）
+
+`groups` 现在只被上面的「迁移旧配置」读取，插件运行时不再看它：
+
+| 配置项 | 字段 | 是否必填 | 说明 |
+| --- | --- | --- | --- |
+| 群 OpenID | `guildId` | 是 | QQ 群 OpenID，唯一匹配键，不是普通群号 |
+| 群通知开关 | `enabled` | 否 | 设为 `false` 时完全禁用该群；未填写时不改动数据库里已有的开关，新建的行默认开启 |
+| 欢迎消息 | `welcomeMessage` | 否 | 覆盖欢迎模板；显式空白会跳过欢迎消息 |
+| 欢迎键盘 | `welcomeKeyboard` | 否 | JSON 字符串；留空继承全局欢迎键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
+| 离群消息 | `leaveMessage` | 否 | 覆盖离群模板；显式空白会跳过离群消息 |
+| 离群键盘 | `leaveKeyboard` | 否 | JSON 字符串；留空继承全局离群键盘，填写 `{ "rows": [] }` 表示不显示按钮 |
+| 入群/离群开关 | `welcomeEnabled`、`leaveEnabled` | 否 | 不会迁移：新模型里群行只有一个总开关，请迁移后到页面上按需调整 |
+| 消息格式（已删除） | `messageFormat` | 否 | 不会迁移：格式配置已删除，文案与回执固定按 QQ Markdown 发送 |
+
+重复填写同一个 `guildId` 时以最后一项为准。示例：
+
+```yaml
+# 生效范围：仅已配置的群
+scope: configured
+# 群配置列表
+groups:
+  # 群 OpenID
+  - guildId: QQ_GROUP_OPENID_A
+    # 群通知开关
+    enabled: true
+    # 欢迎消息
+    welcomeMessage: |-
+      欢迎 {at}！
+      加入时间：{time}
+  - guildId: QQ_GROUP_OPENID_B
+    enabled: true
+```
 
 ## 最小手工验证
 
@@ -346,28 +333,12 @@ h('qq:rawmarkdown', {
 2. 在测试群中让一个非机器人测试账号加入，确认只出现一条欢迎消息。
 3. 让该账号离开，确认只出现一条中性的离群消息；不要据此判断主动退出或被移出。
 4. 在模板中加入 `{at}`、`{time}`、`{userId}`，核对提及对象和事件时间。
-5. 用 `/关闭欢迎` 关闭当前群，确认通知停止、回复里的 `群 OpenID` 正确，再点按钮或执行 `/开启欢迎` 恢复。
+5. 用 `/关闭欢迎` 关闭当前群，确认通知停止、回复里的「群 OpenID」正确，再点按钮或执行 `/开启欢迎` 恢复。
 6. 在「入群欢迎管理」页为测试群新建一行并只改其中一两个字段，确认只有该群受影响、其余字段仍继承全局默认；再删除该行，确认回到继承状态。
 7. 分别配置 `action.type: 0/1/2` 的跳转、回调和指令按钮；回调分别验证 `welcome-messge-qq:reply:` 文本回复与 `welcome-messge-qq:command:` 指令执行。
 8. 分别验证 `permission.type: 0/1/2/3`、指定用户/身份组数组，以及 `enter: true/false`；再检查手机 QQ、Windows QQ 的 Markdown 与按钮显示。
 9. 若正文正常但按钮缺失，先检查适配器请求日志中是否存在 `keyboard.content.rows`；若请求里没有 `keyboard`，检查数据库里该群的 `welcomeKeyboard` / `leaveKeyboard` 是否为合法 JSON，插件会输出“按钮配置 JSON 解析失败”警告。若完全没有通知，再检查 `adapter-qq-crack` 是否实际收到并映射了 `GROUP_MEMBER_ADD` / `GROUP_MEMBER_REMOVE`，以及机器人应用是否具备相关事件权限。
-10. 源码工作区运行时若提示找不到 `lib/index.js`，重新执行 `yarn yakumo esbuild welcome-messge-qq` 并重载插件。
-
-### `adapter-qq-crack` 的实际发送链路
-
-最新版 `adapter-qq-crack` 会把 `GROUP_MEMBER_ADD` 映射为 `guild-member-added`，把 `GROUP_MEMBER_REMOVE` 映射为 `guild-member-removed`，并把两类网关事件的 `input.id` 都写入 `session.messageId`。原始网关载荷仍保存在 `session.qq`。
-
-因此入群和离群通知现在统一使用事件会话发送：
-
-```ts
-await session.send(message)
-```
-
-事件仍在有效时间内时，适配器的 `QQMessageEncoder` 会把 `session.messageId` 写入请求的 `msg_id`，并为同一事件生成从 `1` 开始递增的 `msg_seq`。成员加入和成员离开请求都不再依赖 `event_id`；`INTERACTION_CREATE` 等没有 `messageId` 的回调事件仍可使用网关事件 ID 作为 `event_id`。
-
-如果 QQ 返回 `40034024`（`msg_id` 无效或越权）或 `40034027`（事件不能回复消息），插件会回退到 `session.bot.sendMessage(...)` 主动发送。其他网络或发送错误不会自动重发，避免产生重复通知。
-
-无按钮 Markdown 必须把正文放在 `h('markdown', ...)` 的子节点中；该适配器从 `children` 读取 Markdown 正文，不读取 `attrs.content`。
+10. 源码工作区运行时若提示找不到 `lib/index.js`，重新执行 `yarn yakumo esbuild welcome-message-qq` 并重载插件。
 
 ## 日志与容错
 
@@ -379,3 +350,39 @@ await session.send(message)
 - 覆盖行写入失败时指令回复会说明失败原因，原有状态保持不变。
 - 同一个成员的同一事件（按事件 ID）只发送一次，重复投递会被忽略。
 - 单次发送失败会记录群 OpenID、成员 OpenID、事件类型和错误信息，不会使插件崩溃或影响后续事件。
+
+## 项目结构
+
+```text
+welcome-message-qq/
+├─ client/            # 控制台页面：群覆盖列表、详情表单与键盘编辑器
+├─ docs/
+│  ├─ adr/            # 决策记录：配置入库、页面布局、固定 Markdown、键盘画布
+│  └─ agents/         # issue 跟踪、triage 标签与领域文档约定
+├─ src/
+│  ├─ index.ts        # 插件入口、事件处理、指令注册与配置 Schema
+│  ├─ button.ts       # 按钮规范化与回调前缀解析
+│  ├─ keyboard.ts     # 键盘渲染与校验
+│  ├─ store.ts        # 数据库读写与继承解析
+│  ├─ model.ts        # 数据库表声明与字段扩展
+│  ├─ template.ts     # 模板变量替换与 Markdown 转义
+│  ├─ console*.ts     # 控制台服务、权限与表单元数据
+│  ├─ defaults.ts     # 内置默认文案与键盘
+│  └─ types.ts        # 配置、键盘与事件类型
+├─ tests/             # node:test 用例：指令、通知、存储、键盘与控制台
+├─ package.json       # npm 与 Koishi 插件元数据
+└─ readme.md          # 使用与开发文档
+```
+
+## 开发
+
+在 Koishi 工作区根目录克隆并构建：
+
+```powershell
+yarn clone https://github.com/KeiMaidDev/koishi-plugin-welcome-message-qq
+yarn build welcome-message-qq
+```
+
+## 许可证
+
+MIT

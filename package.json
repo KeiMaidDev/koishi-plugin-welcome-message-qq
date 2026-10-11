@@ -1,19 +1,37 @@
 {
   "name": "koishi-plugin-welcome-message-qq",
-  "description": "QQ 群成员入群欢迎、离群通知与原生 Markdown 命令按钮插件",
-  "version": "0.0.1",
+  "description": "适配QQ官方机器人的入群欢迎插件！",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "dist"
   ],
+  "homepage": "https://github.com/KeiMaidDev/koishi-plugin-welcome-message-qq#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KeiMaidDev/koishi-plugin-welcome-message-qq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KeiMaidDev/koishi-plugin-welcome-message-qq/issues"
+  },
   "license": "MIT",
   "keywords": [
     "chatbot",
     "koishi",
     "plugin"
   ],
+  "koishi": {
+    "description": {
+      "zh": "适配QQ官方机器人的入群欢迎插件！"
+    },
+    "service": {
+      "required": [
+        "database"
+      ]
+    }
+  },
   "peerDependencies": {
     "koishi": "^4.18.7"
   }

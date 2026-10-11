@@ -74,23 +74,7 @@ export const inject = ['database']
 
 export const usage = `
 
-本插件需配合 [adapter-qq-crack](/market?keyword=adapter-qq-crack) 使用，并需要宿主已安装数据库插件（例如 koishi-plugin-database-sqlite）。缺少数据库插件时本插件不会加载。
-
-## 群级状态保存在数据库
-
-群的开与关、每个群的消息正文和按钮都保存在数据库表 <code>welcome_message_group</code> 中，插件不会改写 Koishi 配置文件。
-表里主键为 <code>*</code> 的一行是全局默认行，其余每一行是一个 QQ 群 OpenID 的覆盖：
-
-- 群覆盖行 → 全局默认行 → 内置默认值，逐字段生效。
-- 某字段留空（NULL）表示继承，显式空白表示“这一项就是空的”（不发送正文或不显示按钮）。
-- 安装控制台插件后可以在“入群欢迎管理”页按群 OpenID 搜索、逐字段覆盖/置空、删除覆盖行，并把旧配置里的 <code>groups</code> 一次性迁移进数据库。该页面需要 Koishi 权限等级 <code>4</code>。
-
-## 默认内容
-
-- 入群正文：<code>欢迎 {at} 加入群聊！</code>，并显示“关闭欢迎”按钮。
-- 离群正文：<code>{at} 已离开群聊。</code>，并显示“关闭欢迎”和“帮助菜单”按钮。
-- 关闭成功后显示“重新开启”按钮；开启成功后显示“再次关闭”按钮。
-- 开启/关闭指令默认权限等级为 <code>1</code>，成功后会在回执里带上当前群的 OpenID。
+本插件需配合 [adapter-qq-crack](/market?keyword=adapter-qq-crack) 使用，插件使用adapter-qq-crack的独有字段，使用koishi官方适配器可能会导致插件无法生效
 
 ## 模板变量
 
@@ -102,16 +86,6 @@ export const usage = `
 - {clock}：事件时间
 - {event}：事件名称，固定为“加入群聊”或“离开群聊”
 - {botId}：机器人id
-
-## 按钮
-
-- <code>action.type = 1</code> 是回调按钮。本插件只响应以下命名空间：
-  - <code>welcome-messge-qq:reply:要回复的文本</code>：点击后发送指定文本。
-  - <code>welcome-messge-qq:command:/要执行的指令</code>：点击后执行 Koishi 指令，例如 <code>welcome-messge-qq:command:/开启欢迎</code>。
-- <code>action.type = 2</code> 是普通 QQ 指令按钮，<code>action.data</code> 直接填写指令内容，不经过本插件的回调处理。
-- 按钮 <code>id</code> 可以省略，插件会按照行列自动生成稳定 ID，例如 <code>0-0</code>。
-- 键盘配置填写 <code>keyboard.content</code> 内部的对象，即以 <code> { &quot;rows&quot;: [...] } </code> 开始的 JSON。
-
 `
 
 export type ButtonCallbackAction =
