@@ -201,12 +201,6 @@ export const CLOSE_COMMAND_ALIASES = ['关闭入退群消息', '关闭欢迎'] a
 export const ENABLE_COMMAND_NAME = 'welcome-messge-qq.enable'
 export const ENABLE_COMMAND_ALIASES = ['开启入退群消息', '开启欢迎'] as const
 
-/** 回执里带上群 OpenID，方便管理员确认改的是哪个群；模板已经写了 {guildId} 时不重复追加。 */
-export function ensureGuildIdLine(template: string): string {
-  if (template.includes('{guildId}')) return template
-  return `${template}\n\n群 OpenID：{guildId}`
-}
-
 export interface BuildNotificationOptions {
   debug?: (message: string) => void
   warn?: (message: string) => void
@@ -276,7 +270,6 @@ export function buildCommandResponse(
     return
   }
 
-  const fullTemplate = ensureGuildIdLine(template)
   const variables = extractTemplateVariables(session, {
     eventType: responseType,
     timeZone,
@@ -287,7 +280,7 @@ export function buildCommandResponse(
     debug: options.debug,
     warn: options.warn,
   })
-  const rendered = renderMessageTemplate(fullTemplate, variables, 'markdown')
+  const rendered = renderMessageTemplate(template, variables, 'markdown')
   if (!rendered.trim()) return
 
   return wrapRenderedMessage(rendered, rows)
@@ -306,7 +299,7 @@ function renderPlainReceipt(
     debug: options.debug,
     warn: options.warn,
   })
-  return renderMessageTemplate(ensureGuildIdLine(template), variables, 'text')
+  return renderMessageTemplate(template, variables, 'text')
 }
 
 const PASSIVE_REPLY_REJECTED_CODES = new Set([40034024, 40034027])
