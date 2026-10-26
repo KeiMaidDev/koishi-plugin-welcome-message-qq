@@ -41,14 +41,6 @@ export const DEFAULT_LEAVE_KEYBOARD = JSON.stringify({
           enter: true,
         },
       },
-      {
-        render_data: { label: '帮助菜单', style: 1 },
-        action: {
-          type: 2,
-          permission: { type: 2 },
-          data: '/帮助菜单',
-        },
-      },
     ],
   }],
 }, null, 2)
