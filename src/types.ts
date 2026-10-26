@@ -45,21 +45,6 @@ export interface KeyboardConfig {
 export type KeyboardConfigSource = KeyboardConfig | string
 
 /**
- * 旧版配置里的单个群覆盖项。
- * @deprecated 群级状态已迁移到数据库表 `welcome_message_group`，本字段只用于一次性迁移，将在 0.2.0 移除。
- */
-export interface GroupConfig {
-  guildId: string
-  enabled?: boolean
-  welcomeEnabled?: boolean
-  welcomeMessage?: string
-  welcomeKeyboard?: string
-  leaveEnabled?: boolean
-  leaveMessage?: string
-  leaveKeyboard?: string
-}
-
-/**
  * 群级通知状态表的一行。
  *
  * `id` 是主键：哨兵行固定为 `*`，其余行是 QQ 群 OpenID。
@@ -152,10 +137,6 @@ export interface Config {
    * @deprecated 只在哨兵行尚不存在时用于创建哨兵行，之后不再读取。
    */
   leaveKeyboard?: string
-  /**
-   * @deprecated 群级状态改由数据库保存；本字段只由旧配置迁移通道读取，插件配置页不再显示，将在 0.2.0 移除。
-   */
-  groups: GroupConfig[]
 }
 
 export interface TemplateVariables {

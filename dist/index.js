@@ -40,14 +40,6 @@ var DEFAULT_LEAVE_KEYBOARD = JSON.stringify({
           data: `${CALLBACK_COMMAND_PREFIX}/关闭欢迎`,
           enter: true
         }
-      },
-      {
-        render_data: { label: "帮助菜单", style: 1 },
-        action: {
-          type: 2,
-          permission: { type: 2 },
-          data: "/帮助菜单"
-        }
       }
     ]
   }]
@@ -543,7 +535,6 @@ var fetchGroups = (query) => send("welcome-message-qq/list", query);
 var fetchStats = () => send("welcome-message-qq/stats");
 var updateGroup = async (input) => assertWrite(await send("welcome-message-qq/update", input));
 var deleteGroup = async (id) => assertWrite(await send("welcome-message-qq/delete", id));
-var migrateGroups = (options) => send("welcome-message-qq/migrate", options);
 
 // client/keyboard-editor.ts
 import { message } from "@koishijs/client";
@@ -598,14 +589,14 @@ function optionalSelect(value, entries, onChange) {
   }, () => entries.map((entry) => h(el("el-option"), { key: entry.value, value: entry.value, label: entry.label })));
 }
 var PERMISSION_TYPE_ENTRIES = [
-  { value: "", label: "未填写" },
-  { value: "0", label: "0 指定用户" },
-  { value: "1", label: "1 管理员" },
-  { value: "2", label: "2 所有人" },
-  { value: "3", label: "3 指定身份组" }
+  { value: "", label: "留空" },
+  { value: "0", label: "指定用户" },
+  { value: "1", label: "管理员" },
+  { value: "2", label: "所有人" },
+  { value: "3", label: "指定身份组" }
 ];
 var TRI_STATE_ENTRIES = [
-  { value: "", label: "未填写（用默认）" },
+  { value: "", label: "留空" },
   { value: "true", label: "是" },
   { value: "false", label: "否" }
 ];
@@ -809,7 +800,7 @@ var KeyboardEditor = defineComponent({
           }
         }, () => CALLBACK_MODE_ENTRIES.map((entry) => h(el("el-radio-button"), { key: entry.value, value: entry.value }, () => entry.label)))),
         field(
-          callbackMode === "command" ? "action.data（指令）" : "action.data（内容）",
+          callbackMode === "command" ? "回调指令" : "回调内容",
           callbackMode === "command" ? textControl(callbackContent, (value) => {
             button.action.data = withCallbackData(callbackMode, value);
             push();
@@ -819,7 +810,7 @@ var KeyboardEditor = defineComponent({
           }, 3, "支持 {userId}、{guildId} 等按钮变量")
         )
       ]) : field(
-        kind === "link" ? "action.data（链接）" : "action.data（指令）",
+        kind === "link" ? "链接地址" : "执行指令",
         textareaControl(
           button.action.data ?? "",
           (value) => {
@@ -831,14 +822,14 @@ var KeyboardEditor = defineComponent({
         )
       );
       const permissionLists = permissionType === 0 || permissionType === 3 || Boolean(button.action.permission.specifyUserIds) || Boolean(button.action.permission.specifyRoleIds) ? h("div", { style: fullGridStyle }, [
-        field("action.permission.specify_user_ids（每行一个）", textareaControl(
+        field("指定用户 ID（每行一个）", textareaControl(
           button.action.permission.specifyUserIds,
           (value) => {
             button.action.permission.specifyUserIds = value;
             push();
           }
         )),
-        field("action.permission.specify_role_ids（每行一个）", textareaControl(
+        field("指定身份组 ID（每行一个）", textareaControl(
           button.action.permission.specifyRoleIds,
           (value) => {
             button.action.permission.specifyRoleIds = value;
@@ -849,15 +840,15 @@ var KeyboardEditor = defineComponent({
       const advanced = h("details", { style: "margin-top:4px" }, [
         h("summary", { style: `${smallLabelStyle};cursor:pointer` }, kept ? `高级（保留 ${kept} 个未暴露字段）` : "高级"),
         h("div", { style: `${gridStyle};margin-top:8px` }, [
-          field("action.anchor", numberControl(button.action.anchor, (value) => {
+          field("跳转锚点", numberControl(button.action.anchor, (value) => {
             button.action.anchor = value;
             push();
           })),
-          field("action.click_limit", numberControl(button.action.clickLimit, (value) => {
+          field("点击次数上限", numberControl(button.action.clickLimit, (value) => {
             button.action.clickLimit = value;
             push();
           })),
-          field("action.at_bot_show_channel_list", optionalSelect(
+          field("点击后显示频道列表", optionalSelect(
             triStateValue(button.action.atBotShowChannelList),
             TRI_STATE_ENTRIES,
             (value) => {
@@ -865,7 +856,7 @@ var KeyboardEditor = defineComponent({
               push();
             }
           )),
-          field("action.unsupport_tips", textControl(button.action.unsupportTips, (value) => {
+          field("不支持时的提示", textControl(button.action.unsupportTips, (value) => {
             button.action.unsupportTips = value;
             push();
           }))
@@ -881,19 +872,19 @@ var KeyboardEditor = defineComponent({
           iconButton("删除", "删除按钮", false, () => removeButton(rowIndex, buttonIndex))
         ]),
         h("div", { style: gridStyle }, [
-          field("id（留空用 行-列）", textControl(button.id, (value) => {
+          field("按钮 ID", textControl(button.id, (value) => {
             button.id = value;
             push();
           }, { placeholder: `${rowIndex}-${buttonIndex}` })),
-          field("render_data.label", textControl(button.renderData.label ?? "", (value) => {
+          field("按钮文字", textControl(button.renderData.label ?? "", (value) => {
             button.renderData.label = value;
             push();
           })),
-          field("render_data.visited_label", textControl(button.renderData.visitedLabel, (value) => {
+          field("点击后文字", textControl(button.renderData.visitedLabel, (value) => {
             button.renderData.visitedLabel = value;
             push();
           })),
-          field("render_data.style", numberControl(button.renderData.style, (value) => {
+          field("按钮样式", numberControl(button.renderData.style, (value) => {
             button.renderData.style = value;
             push();
           }))
@@ -907,7 +898,7 @@ var KeyboardEditor = defineComponent({
           }
         }, () => BUTTON_KIND_ENTRIES.map((entry) => h(el("el-radio-button"), { key: entry.value, value: entry.value }, () => entry.label)))),
         h("div", { style: gridStyle }, [
-          field("action.permission.type", optionalSelect(
+          field("可见范围", optionalSelect(
             permissionType === void 0 ? void 0 : String(permissionType),
             PERMISSION_TYPE_ENTRIES,
             (value) => {
@@ -915,7 +906,7 @@ var KeyboardEditor = defineComponent({
               push();
             }
           )),
-          field("action.enter", optionalSelect(
+          field("点击后发送（仅私聊）", optionalSelect(
             triStateValue(button.action.enter),
             TRI_STATE_ENTRIES,
             (value) => {
@@ -923,7 +914,7 @@ var KeyboardEditor = defineComponent({
               push();
             }
           )),
-          field("action.reply", optionalSelect(
+          field("点击后回复", optionalSelect(
             triStateValue(button.action.reply),
             TRI_STATE_ENTRIES,
             (value) => {
@@ -1141,7 +1132,6 @@ var app_default = defineComponent2({
     const loading = ref2(false);
     const saving = ref2(false);
     const checking = ref2(false);
-    const migrating = ref2(false);
     const query = reactive({ filter: "all", search: "", page: 1, pageSize: 20 });
     const searchInput = ref2("");
     const selectedId = ref2(null);
@@ -1400,33 +1390,6 @@ var app_default = defineComponent2({
         await refresh();
       } catch (error) {
         message2.error("删除失败：" + errorText(error));
-      }
-    }
-    async function migrate() {
-      migrating.value = true;
-      try {
-        const preview = await migrateGroups({ dryRun: true });
-        if (!preview.overwritten && !preview.written) {
-          message2.info("旧配置里没有可迁移的群覆盖。");
-          return;
-        }
-        try {
-          await messageBox.confirm(
-            `本次迁移将覆盖 ${preview.overwritten} 行、新建 ${preview.written} 行，且不会修改配置文件。确认迁移吗？`,
-            "迁移旧配置",
-            { type: "warning", confirmButtonText: "迁移", cancelButtonText: "取消" }
-          );
-        } catch {
-          return;
-        }
-        const result = await migrateGroups();
-        message2.success(`迁移完成：覆盖 ${result.overwritten} 行，新建 ${result.written} 行。`);
-        await refresh();
-        if (selectedId.value && !detailDirty()) selectAfterReload(selectedId.value);
-      } catch (error) {
-        message2.error("迁移旧配置失败：" + errorText(error));
-      } finally {
-        migrating.value = false;
       }
     }
     function applySearch() {
@@ -1688,10 +1651,7 @@ var app_default = defineComponent2({
       h2("div", { style: "flex:1" }),
       h2(el2("el-button"), { size: "small", type: "primary", onClick: () => {
         void openCreate();
-      }, loading: checking.value }, () => "新增群覆盖"),
-      h2(el2("el-button"), { size: "small", onClick: () => {
-        void migrate();
-      }, loading: migrating.value }, () => "迁移旧配置")
+      }, loading: checking.value }, () => "新增群覆盖")
     ]);
     return () => {
       return h2(el2("k-layout"), () => h2("div", {

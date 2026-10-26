@@ -7,7 +7,6 @@ import type {
   ConsoleStats,
   ConsoleWriteResult,
 } from '../src/console-service'
-import type { MigrationResult } from '../src/store'
 
 export type {
   ConsoleGroupInput,
@@ -16,7 +15,6 @@ export type {
   ConsoleListResult,
   ConsoleStats,
   ConsoleWriteResult,
-  MigrationResult,
 }
 
 // @koishijs/client 在 client/env.d.ts 中被声明为不透明边界，send 不感知插件事件契约；
@@ -34,5 +32,3 @@ export const updateGroup = async (input: ConsoleGroupInput): Promise<void> =>
   assertWrite(await send<ConsoleWriteResult>('welcome-message-qq/update', input))
 export const deleteGroup = async (id: string): Promise<void> =>
   assertWrite(await send<ConsoleWriteResult>('welcome-message-qq/delete', id))
-export const migrateGroups = (options?: { dryRun?: boolean }) =>
-  send<MigrationResult>('welcome-message-qq/migrate', options)

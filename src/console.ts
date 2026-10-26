@@ -7,7 +7,6 @@ import {
   deleteConsoleGroup,
   listConsoleGroups,
   loadConsoleStats,
-  migrateConsoleGroups,
   updateConsoleGroup,
   type ConsoleErrorReason,
   type ConsoleGroupInput,
@@ -16,7 +15,6 @@ import {
   type ConsoleStats,
   type ConsoleWriteResult,
 } from './console-service'
-import type { MigrationResult } from './store'
 import type { Config } from './types'
 import { errorMessage } from './utils'
 
@@ -26,7 +24,6 @@ declare module '@koishijs/console' {
     'welcome-message-qq/stats'(): Promise<ConsoleStats>
     'welcome-message-qq/update'(input: ConsoleGroupInput): Promise<ConsoleWriteResult>
     'welcome-message-qq/delete'(id: string): Promise<ConsoleWriteResult>
-    'welcome-message-qq/migrate'(options?: { dryRun?: boolean }): Promise<MigrationResult>
   }
 }
 
@@ -82,8 +79,6 @@ export const setupConsole = Object.assign(
     if (!ctx.console) return
 
     const logger = ctx.logger('welcome-message-qq-console')
-    const legacyGroups = () => options.config?.groups ?? []
-
     /** 数据库读写失败时给出可读原因，页面据此提示而不是白屏。 */
     const run = async <T>(label: string, task: () => Promise<T>): Promise<T> => {
       try {
@@ -113,12 +108,6 @@ export const setupConsole = Object.assign(
 
     ctx.console.addListener(`${CONSOLE_API_PREFIX}/delete`, async (id) =>
       assertOk(await run('删除群覆盖', () => deleteConsoleGroup(ctx.database, id))), requireAuthority)
-
-    ctx.console.addListener(`${CONSOLE_API_PREFIX}/migrate`, (migrationOptions) => {
-      const dryRun = migrationOptions?.dryRun === true
-      return run(dryRun ? '试算迁移' : '迁移旧配置', () =>
-        migrateConsoleGroups(ctx.database, legacyGroups(), dryRun))
-    }, requireAuthority)
 
     ctx.console.addEntry(resolveConsoleEntry(ctx))
   },

@@ -33,7 +33,6 @@ import {
 } from './template'
 import type {
   Config as PluginConfig,
-  GroupConfig,
   NotificationEventType,
   ResolvedNotificationConfig,
   ResolvedResponseConfig,
@@ -148,17 +147,6 @@ const timeZoneSchema = Schema.string()
   .default(DEFAULT_TIME_ZONE)
   .description('IANA 时区名称，例如 Asia/Shanghai。非法或当前运行时不支持的时区无法保存。')
 
-const legacyGroupSchema: Schema<GroupConfig> = Schema.object({
-  guildId: Schema.string().required().description('QQ 群 OpenID（不是普通 QQ 群号），作为唯一匹配键。'),
-  enabled: Schema.boolean().description('是否在此群启用成员变动通知；未填写时迁移不会改动数据库里已有的开关，新建的行默认开启。'),
-  welcomeEnabled: Schema.boolean().description('已弃用：群级状态改由数据库保存，迁移时忽略该项。'),
-  welcomeMessage: Schema.string().role('textarea').description('入群欢迎模板。'),
-  welcomeKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().description('入群按钮 JSON。'),
-  leaveEnabled: Schema.boolean().description('已弃用：群级状态改由数据库保存，迁移时忽略该项。'),
-  leaveMessage: Schema.string().role('textarea').description('离群消息模板。'),
-  leaveKeyboard: Schema.string().role('textarea', { rows: [12, 12] }).collapse().description('离群按钮 JSON。'),
-}).description('已弃用：旧配置迁移通道会读取这里的内容，配置页已不再显示本分组')
-
 export const Config: Schema<PluginConfig> = Schema.object({
   scope: Schema.union([
     Schema.const('all').description('全部 QQ 群（推荐）：机器人所在的群都启用；数据库里显式关闭的群除外。'),
@@ -178,7 +166,6 @@ export const Config: Schema<PluginConfig> = Schema.object({
   closeResponseKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_CLOSE_RESPONSE_KEYBOARD),
   enableResponseMessage: Schema.string().role('textarea').hidden().default(DEFAULT_ENABLE_RESPONSE_MESSAGE),
   enableResponseKeyboard: Schema.string().role('textarea').hidden().default(DEFAULT_ENABLE_RESPONSE_KEYBOARD),
-  groups: Schema.array(legacyGroupSchema).default([]).hidden().description('已弃用：群级状态已迁入数据库，仍可被「迁移旧配置」读取；本字段将在 0.2.0 移除。'),
 })
 
 function normalizeTimeZone(timeZone: string | undefined, warn: (message: string) => void) {

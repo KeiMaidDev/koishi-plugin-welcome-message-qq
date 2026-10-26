@@ -192,7 +192,6 @@ export default defineComponent({
     const saving = ref(false)
     /** 新增入口的查重请求进行中：与 saving 分离，避免「保存中」语义被扩成「任意 RPC 进行中」。 */
     const checking = ref(false)
-    const migrating = ref(false)
     const query = reactive({ filter: 'all' as FilterMode, search: '', page: 1, pageSize: 20 })
     const searchInput = ref('')
     const selectedId = ref<string | null>(null)
@@ -534,35 +533,6 @@ export default defineComponent({
       }
     }
 
-    async function migrate() {
-      migrating.value = true
-      try {
-        const preview = await api.migrateGroups({ dryRun: true })
-        if (!preview.overwritten && !preview.written) {
-          message.info('旧配置里没有可迁移的群覆盖。')
-          return
-        }
-        try {
-          await messageBox.confirm(
-            `本次迁移将覆盖 ${preview.overwritten} 行、新建 ${preview.written} 行，且不会修改配置文件。确认迁移吗？`,
-            '迁移旧配置',
-            { type: 'warning', confirmButtonText: '迁移', cancelButtonText: '取消' },
-          )
-        } catch {
-          return
-        }
-        const result = await api.migrateGroups()
-        message.success(`迁移完成：覆盖 ${result.overwritten} 行，新建 ${result.written} 行。`)
-        await refresh()
-        // 迁移会覆盖包括当前行在内的存量数据；详情脏时保留用户改动，干净时同步成新值
-        if (selectedId.value && !detailDirty()) selectAfterReload(selectedId.value)
-      } catch (error) {
-        message.error('迁移旧配置失败：' + errorText(error))
-      } finally {
-        migrating.value = false
-      }
-    }
-
     function applySearch() {
       query.search = searchInput.value.trim()
       query.page = 1
@@ -821,7 +791,7 @@ export default defineComponent({
       h(el('el-button'), { size: 'small', onClick: () => { void refresh() }, loading: loading.value }, () => '刷新'),
     ])
 
-    /** 筛选行：全部 / 已开启 / 已关闭（走服务端 enabled）+ 搜索 + 新增 / 迁移。 */
+    /** 筛选行：全部 / 已开启 / 已关闭（走服务端 enabled）+ 搜索 + 新增。 */
     const renderFilterRow = () => h('div', { style: toolbarStyle }, [
       h(el('el-radio-group'), {
         modelValue: query.filter,
@@ -845,7 +815,6 @@ export default defineComponent({
       h(el('el-button'), { size: 'small', onClick: applySearch }, () => '搜索'),
       h('div', { style: 'flex:1' }),
       h(el('el-button'), { size: 'small', type: 'primary', onClick: () => { void openCreate() }, loading: checking.value }, () => '新增群覆盖'),
-      h(el('el-button'), { size: 'small', onClick: () => { void migrate() }, loading: migrating.value }, () => '迁移旧配置'),
     ])
 
     return () => {

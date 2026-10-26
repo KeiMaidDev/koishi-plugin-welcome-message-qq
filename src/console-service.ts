@@ -2,17 +2,14 @@ import { validateKeyboardJson } from './keyboard'
 import { GLOBAL_ROW_ID } from './model'
 import {
   deleteGroupRow,
-  importLegacyGroups,
   listGroupRows,
   loadGroupStats,
   saveGroupRow,
   type DatabaseLike,
-  type MigrationResult,
 } from './store'
 import {
   CONTENT_FIELDS,
   type ContentField,
-  type GroupConfig,
   type WelcomeMessageGroup,
 } from './types'
 
@@ -235,16 +232,4 @@ export async function deleteConsoleGroup(
   if (normalized === GLOBAL_ROW_ID) return { ok: false, reason: 'sentinel_not_deletable' }
   await deleteGroupRow(database, normalized)
   return { ok: true }
-}
-
-/**
- * 迁移旧配置里的 `groups`。
- * `dryRun = true` 时只试算不写入，用于点击按钮前的「将覆盖 N 行」提示。
- */
-export async function migrateConsoleGroups(
-  database: DatabaseLike,
-  groups: readonly GroupConfig[] | undefined,
-  dryRun = false,
-): Promise<MigrationResult> {
-  return importLegacyGroups(database, groups, { dryRun })
 }

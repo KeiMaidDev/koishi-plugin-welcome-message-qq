@@ -12,10 +12,7 @@ import {
 import { GLOBAL_ROW_ID, GROUP_TABLE } from './model'
 import { escapeRegExp } from './utils'
 import {
-  CONTENT_FIELDS,
   type Config,
-  type ContentField,
-  type GroupConfig,
   type NotificationEventType,
   type NotificationScope,
   type ResolvedNotificationConfig,
@@ -208,68 +205,6 @@ export async function deleteGroupRow(database: DatabaseLike, id: string): Promis
   if (!normalized) throw new Error('缺少群 OpenID。')
   if (normalized === GLOBAL_ROW_ID) throw new Error('全局默认行不能删除。')
   await database.remove(GROUP_TABLE, { id: normalized })
-}
-
-function assignContentField(patch: Partial<WelcomeMessageGroup>, field: ContentField, value: unknown) {
-  if (value === undefined) return
-  if (typeof value === 'string') patch[field] = value
-}
-
-export interface MigrationResult {
-  /** 数据库里已有、被配置的显式字段覆盖掉的行数。 */
-  overwritten: number
-  /** 数据库里没有、需要新建的行数。 */
-  written: number
-  /** 本次只试算、未真正写入时为 true。 */
-  dryRun: boolean
-}
-
-/** 旧配置 → 迁移计划：同一个 OpenID 出现多次时以最后一项为准。 */
-function buildMigrationPlan(groups: readonly GroupConfig[] | undefined) {
-  const patches = new Map<string, Partial<WelcomeMessageGroup>>()
-  for (const group of Array.isArray(groups) ? groups : []) {
-    if (!group || typeof group !== 'object') continue
-    const id = typeof group.guildId === 'string' ? group.guildId.trim() : ''
-    if (!id || id === GLOBAL_ROW_ID) continue
-    const patch: Partial<WelcomeMessageGroup> = {}
-    if (typeof group.enabled === 'boolean') patch.enabled = group.enabled
-    for (const field of CONTENT_FIELDS) {
-      assignContentField(patch, field, (group as Record<string, unknown>)[field])
-    }
-    // 重复 OpenID 以最后一项为准：整条替换而不是合并
-    patches.set(id, patch)
-  }
-  return patches
-}
-
-/**
- * 把旧配置里的 `groups` 迁移进数据库。
- *
- * - 只写配置里显式出现的字段，未出现的字段保持数据库原值；
- * - 不删除任何数据，也不回写配置文件；
- * - 计划在写入前算好，所以试算和真正执行判定的是同一批行；重复执行时判定不变，只是
- *   本该新建的行变成覆盖已有行（`written` 递减、`overwritten` 递增）。
- */
-export async function importLegacyGroups(
-  database: DatabaseLike,
-  groups: readonly GroupConfig[] | undefined,
-  options: { dryRun?: boolean } = {},
-): Promise<MigrationResult> {
-  const patches = buildMigrationPlan(groups)
-  const ids = [...patches.keys()]
-  const existing = ids.length
-    ? await database.get(GROUP_TABLE, { id: { $in: ids } }, ['id'])
-    : []
-  const existingIds = new Set(existing.map(row => row.id))
-
-  const result: MigrationResult = { overwritten: 0, written: 0, dryRun: Boolean(options.dryRun) }
-  for (const [id, patch] of patches) {
-    if (existingIds.has(id)) result.overwritten++
-    else result.written++
-    if (options.dryRun) continue
-    await saveGroupRow(database, { ...patch, id })
-  }
-  return result
 }
 
 export interface ListGroupRowsQuery {
