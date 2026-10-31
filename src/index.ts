@@ -152,7 +152,6 @@ export const Config: Schema<PluginConfig> = Schema.object({
     Schema.const('all').description('全部 QQ 群（推荐）：机器人所在的群都启用；数据库里显式关闭的群除外。'),
     Schema.const('configured').description('仅已配置的 QQ 群：只有数据库里已经有覆盖行的群发送消息。'),
   ]).role('radio').default('all').description('选择入群欢迎和离群通知要在哪些 QQ 群生效。'),
-  ignoreBots: Schema.boolean().default(true).description('忽略机器人自身以及标记为机器人的成员事件。'),
   timeZone: timeZoneSchema.description('模板里 {date}、{clock}、{time} 使用的时区。'),
   closeCommandAuthority: Schema.number().step(1).min(0).max(5).default(1).description('开启/关闭当前群通知指令所需的 Koishi 权限等级。'),
   // 以下字段只用于把旧配置的内容灌进全局默认行，之后不再读取；在控制台里已隐藏。
@@ -177,10 +176,8 @@ function normalizeTimeZone(timeZone: string | undefined, warn: (message: string)
   return DEFAULT_TIME_ZONE
 }
 
-function isBotEvent(session: Session, ignoreBots: boolean) {
-  if (session.userId && session.selfId && session.userId === session.selfId) return true
-  if (!ignoreBots) return false
-  return Boolean(session.event?.user?.isBot || session.event?.member?.user?.isBot)
+function isSelfEvent(session: Session) {
+  return Boolean(session.userId && session.selfId && session.userId === session.selfId)
 }
 
 export const CLOSE_COMMAND_NAME = 'welcome-messge-qq.close'
@@ -374,7 +371,6 @@ export function apply(ctx: Context, config: PluginConfig) {
   const logger = ctx.logger(name)
   const timeZone = normalizeTimeZone(config.timeZone, message => logger.warn(message))
   const scope = config.scope ?? 'all'
-  const ignoreBots = config.ignoreBots ?? true
   const recentMemberEvents = new Set<string>()
   const recentMemberEventOrder: string[] = []
 
@@ -411,8 +407,8 @@ export function apply(ctx: Context, config: PluginConfig) {
       )
       return
     }
-    if (isBotEvent(session, ignoreBots)) {
-      logger.debug('忽略 QQ 机器人成员事件：guildId=%s userId=%s event=%s', session.guildId, session.userId, eventType)
+    if (isSelfEvent(session)) {
+      logger.debug('忽略机器人自身的成员事件：guildId=%s userId=%s event=%s', session.guildId, session.userId, eventType)
       return
     }
 

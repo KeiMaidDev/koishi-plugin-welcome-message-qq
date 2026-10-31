@@ -94,7 +94,6 @@ export type ContentField = typeof CONTENT_FIELDS[number]
 
 export interface Config {
   scope: NotificationScope
-  ignoreBots: boolean
   timeZone: string
   closeCommandAuthority: number
   /**

@@ -50,7 +50,6 @@ welcome-message-qq
 | 配置项 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | 生效范围 | `scope` | 单选 | 全部 QQ 群（推荐） | “全部 QQ 群”会在机器人所在的所有群启用；“仅指定的 QQ 群”只处理数据库里存在覆盖行的群 |
-| 忽略机器人 | `ignoreBots` | `boolean` | `true` | 忽略机器人自身及标记为机器人的成员事件 |
 | 时区 | `timeZone` | `string` | `Asia/Shanghai` | `{time}`、`{date}`、`{clock}` 使用的 IANA 时区；非法值无法通过 Schema，运行时也会回退并告警 |
 | 开关指令权限等级 | `closeCommandAuthority` | `number` | `1` | 开启/关闭当前群通知指令所需的 Koishi 权限等级 |
 | 入群欢迎开关（仅初始化） | `welcomeEnabled` | `boolean` | `true` | 是否发送入群欢迎消息（仅全局默认行） |
